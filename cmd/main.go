@@ -1,58 +1,71 @@
 package main
 
 import (
+	"context"
+	"log"
 	"net/http"
 
+	"recommendation-system/internal/repository"
+
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
+
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 
-	// Цей імпорт з'явиться після генерації, але додамо його заздалегідь
-	// (заміни recommendation-system на назву своєї папки в go.mod, якщо інша)
+	// 👇 ТУТ МАЄ БУТИ НАЗВА ТВОГО МОДУЛЯ (з файлу go.mod)
+	// Якщо в go.mod написано module recommendation-system, то лишай як є.
+	// Якщо там module myapp, то зміни на "myapp/internal/database"
 	_ "recommendation-system/docs"
+	"recommendation-system/internal/database"
 )
 
 // @title           Book Recommendation System API
 // @version         1.0
-// @description     API сервер для курсової роботи з рекомендаційною системою.
+// @description     API сервер для курсової роботи.
 // @host            localhost:8080
 // @BasePath        /
 func main() {
+	// 1. Завантажуємо .env (щоб отримати пароль до бази)
+	if err := godotenv.Load(); err != nil {
+		log.Println("⚠️ .env файл не знайдено, шукаю змінні середовища")
+	}
+
+	// 2. Підключаємо Базу Даних (викликаємо функцію з іншого файлу)
+	database.InitDB()
+	// Закриваємо з'єднання, коли сервер зупиниться
+	defer database.DB.Close(context.Background())
+
+	// 3. Запускаємо Веб-сервер (Gin + Swagger)
 	r := gin.Default()
 
-	// Маршрут для документації Swagger
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-
-	// Твої ендпоінти
 	r.GET("/ping", PingHandler)
 	r.GET("/recommend/vector", VectorHandler)
 
 	r.Run(":8080")
 }
 
-// PingHandler перевірка статусу сервера
-// @Summary      Перевірка здоров'я сервера
-// @Description  Повертає pong, якщо сервер живий
-// @Tags         system
-// @Accept       json
-// @Produce      json
-// @Success      200  {object}  map[string]string
-// @Router       /ping [get]
+// ... (твої хендлери залишаються без змін) ...
 func PingHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "pong"})
 }
 
-// VectorHandler отримання рекомендацій (векторний метод)
-// @Summary      Векторні рекомендації
-// @Description  Повертає список книг на основі схожості описів
-// @Tags         recommendations
-// @Accept       json
-// @Produce      json
-// @Success      200  {object}  map[string]interface{}
-// @Router       /recommend/vector [get]
 func VectorHandler(c *gin.Context) {
+	// Імітуємо вектор інтересів користувача.
+	// [1.0, 0.5, 0.0] -> Це означає: Дуже любить першу категорію (Історія),
+	// трохи любить другу, і зовсім не любить третю.
+	userInterests := []float32{1.0, 0.5, 0.0}
+
+	// Викликаємо функцію пошуку
+	items, err := repository.FindSimilar(userInterests)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"type":  "vector",
-		"books": []string{"Harry Potter", "Dune"},
+		"message":     "Рекомендації на основі вектора [1.0, 0.5, 0.0]",
+		"recommended": items,
 	})
 }
