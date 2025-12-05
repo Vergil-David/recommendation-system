@@ -1,0 +1,42 @@
+basePath: /
+host: localhost:8080
+info:
+  contact: {}
+  description: API сервер для курсової роботи з рекомендаційною системою.
+  title: Book Recommendation System API
+  version: "1.0"
+paths:
+  /ping:
+    get:
+      consumes:
+      - application/json
+      description: Повертає pong, якщо сервер живий
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Перевірка здоров'я сервера
+      tags:
+      - system
+  /recommend/vector:
+    get:
+      consumes:
+      - application/json
+      description: Повертає список книг на основі схожості описів
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Векторні рекомендації
+      tags:
+      - recommendations
+swagger: "2.0"
