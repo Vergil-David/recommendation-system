@@ -1,16 +1,45 @@
-basePath: /
-host: localhost:8080
+definitions:
+  auth.LoginRequest:
+    properties:
+      email:
+        example: user@example.com
+        type: string
+      password:
+        example: secret123
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  auth.RegisterRequest:
+    properties:
+      email:
+        example: user@example.com
+        type: string
+      password:
+        example: secret123
+        type: string
+    required:
+    - email
+    - password
+    type: object
 info:
   contact: {}
-  description: API сервер для курсової роботи з рекомендаційною системою.
   title: Book Recommendation System API
   version: "1.0"
 paths:
-  /ping:
-    get:
+  /auth/login:
+    post:
       consumes:
       - application/json
-      description: Повертає pong, якщо сервер живий
+      description: Перевіряє email/пароль та повертає JWT токен
+      parameters:
+      - description: Дані для входу
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.LoginRequest'
       produces:
       - application/json
       responses:
@@ -20,23 +49,54 @@ paths:
             additionalProperties:
               type: string
             type: object
-      summary: Перевірка здоров'я сервера
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Вхід користувача
       tags:
-      - system
-  /recommend/vector:
-    get:
+      - auth
+  /auth/register:
+    post:
       consumes:
       - application/json
-      description: Повертає список книг на основі схожості описів
+      description: Створює новий акаунт користувача з email та паролем
+      parameters:
+      - description: Дані для реєстрації
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.RegisterRequest'
       produces:
       - application/json
       responses:
-        "200":
-          description: OK
+        "201":
+          description: Created
           schema:
             additionalProperties: true
             type: object
-      summary: Векторні рекомендації
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Реєстрація нового користувача
       tags:
-      - recommendations
+      - auth
 swagger: "2.0"

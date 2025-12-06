@@ -15,9 +15,9 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/ping": {
-            "get": {
-                "description": "Повертає pong, якщо сервер живий",
+        "/auth/login": {
+            "post": {
+                "description": "Перевіряє email/пароль та повертає JWT токен",
                 "consumes": [
                     "application/json"
                 ],
@@ -25,12 +25,41 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "system"
+                    "auth"
                 ],
-                "summary": "Перевірка здоров'я сервера",
+                "summary": "Вхід користувача",
+                "parameters": [
+                    {
+                        "description": "Дані для входу",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.LoginRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -41,9 +70,9 @@ const docTemplate = `{
                 }
             }
         },
-        "/recommend/vector": {
-            "get": {
-                "description": "Повертає список книг на основі схожості описів",
+        "/auth/register": {
+            "post": {
+                "description": "Створює новий акаунт користувача з email та паролем",
                 "consumes": [
                     "application/json"
                 ],
@@ -51,17 +80,82 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "recommendations"
+                    "auth"
                 ],
-                "summary": "Векторні рекомендації",
+                "summary": "Реєстрація нового користувача",
+                "parameters": [
+                    {
+                        "description": "Дані для реєстрації",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.RegisterRequest"
+                        }
+                    }
+                ],
                 "responses": {
-                    "200": {
-                        "description": "OK",
+                    "201": {
+                        "description": "Created",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
                     }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "auth.LoginRequest": {
+            "type": "object",
+            "required": [
+                "email",
+                "password"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "example": "user@example.com"
+                },
+                "password": {
+                    "type": "string",
+                    "example": "secret123"
+                }
+            }
+        },
+        "auth.RegisterRequest": {
+            "type": "object",
+            "required": [
+                "email",
+                "password"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "example": "user@example.com"
+                },
+                "password": {
+                    "type": "string",
+                    "example": "secret123"
                 }
             }
         }
@@ -71,11 +165,11 @@ const docTemplate = `{
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
 	Version:          "1.0",
-	Host:             "localhost:8080",
-	BasePath:         "/",
+	Host:             "",
+	BasePath:         "",
 	Schemes:          []string{},
 	Title:            "Book Recommendation System API",
-	Description:      "API сервер для курсової роботи з рекомендаційною системою.",
+	Description:      "",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",
