@@ -1,10 +1,7 @@
 package auth
 
 import (
-	"context"
-	"log"
 	"net/http"
-	"recommendation-system/internal/database"
 
 	"github.com/gin-gonic/gin"
 )
@@ -12,6 +9,7 @@ import (
 // Structures for Swagger documentation
 type RegisterRequest struct {
 	Email    string `json:"email" binding:"required" example:"user@example.com"`
+	Username string `json:"username" binding:"required" example:"johndoe"`
 	Password string `json:"password" binding:"required" example:"secret123"`
 }
 
@@ -35,27 +33,17 @@ func RegisterHandler(c *gin.Context) {
 	var req RegisterRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Неправильні дані"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
 
-	hashedPwd, err := HashPassword(req.Password)
+	user, err := Register(c.Request.Context(), req.Email, req.Username, req.Password)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Помилка хешування"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	query := `INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id`
-	var newID int
-	err = database.DB.QueryRow(context.Background(), query, req.Email, hashedPwd).Scan(&newID)
-
-	if err != nil {
-		log.Println("DB Error:", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Не вдалося створити користувача (можливо email зайнятий)"})
-		return
-	}
-
-	c.JSON(http.StatusCreated, gin.H{"message": "Успішна реєстрація", "user_id": newID})
+	c.JSON(http.StatusCreated, user)
 }
 
 // LoginHandler godoc
@@ -73,28 +61,15 @@ func LoginHandler(c *gin.Context) {
 	var req LoginRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Неправильні дані"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
 
-	var id int
-	var storedHash string
-
-	query := `SELECT id, password_hash FROM users WHERE email = $1`
-	err := database.DB.QueryRow(context.Background(), query, req.Email).Scan(&id, &storedHash)
-
+	user, err := Login(c.Request.Context(), req.Email, req.Password)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Користувача не знайдено"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 
-	match := CheckPasswordHash(req.Password, storedHash)
-	if !match {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Невірний пароль"})
-		return
-	}
-
-	token, _ := GenerateJWT(string(rune(id)))
-
-	c.JSON(http.StatusOK, gin.H{"token": token})
+	c.JSON(http.StatusOK, user)
 }

@@ -8,31 +8,21 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Глобальна змінна, через яку ми будемо робити запити до БД
 var DB *pgx.Conn
 
-func InitDB() {
-	// Отримуємо посилання з .env
-	dbUrl := os.Getenv("DATABASE_URL")
-	if dbUrl == "" {
-		fmt.Println("❌ Помилка: DATABASE_URL не знайдено в .env")
-		os.Exit(1)
-	}
-
-	// Підключаємось
+func InitDB(databaseURL string) {
 	var err error
-	DB, err = pgx.Connect(context.Background(), dbUrl)
+
+	DB, err = pgx.Connect(context.Background(), databaseURL)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ Не вдалося підключитися до бази: %v\n", err)
+		fmt.Fprintf(os.Stderr, "❌ Failed to connect to database: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Перевіряємо пінг
-	err = DB.Ping(context.Background())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ База не відповідає: %v\n", err)
+	if err = DB.Ping(context.Background()); err != nil {
+		fmt.Fprintf(os.Stderr, "❌ Database ping failed: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Println("✅ Успішне підключення до Supabase PostgreSQL!")
+	fmt.Println("✅ Database connection established")
 }
