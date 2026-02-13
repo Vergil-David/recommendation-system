@@ -19,7 +19,8 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	URL string
+	URL           string
+	MigrationsURL string
 }
 
 type JWTConfig struct {
@@ -37,12 +38,17 @@ func Load() *Config {
 			Port: getEnv("SERVER_PORT", "8080"),
 		},
 		Database: DatabaseConfig{
-			URL: mustEnv("DATABASE_URL"),
+			URL:           mustEnv("DATABASE_URL"),
+			MigrationsURL: getEnv("MIGRATIONS_DATABASE_URL", ""),
 		},
 		JWT: JWTConfig{
 			Secret:    mustEnv("JWT_SECRET"),
 			ExpiresIn: mustDuration("JWT_EXPIRES_IN", "1h"),
 		},
+	}
+
+	if cfg.Database.MigrationsURL == "" {
+		cfg.Database.MigrationsURL = cfg.Database.URL
 	}
 
 	return cfg

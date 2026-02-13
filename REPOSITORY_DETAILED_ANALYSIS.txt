@@ -1,0 +1,417 @@
+Детальний розбір репозиторію recommendation-system
+==================================================
+
+1) Що це за проєкт
+------------------
+Це backend-сервіс на Go, який зараз реалізує:
+- запуск HTTP API на Gin;
+- реєстрацію користувача;
+- логін користувача;
+- видачу JWT токена;
+- підключення до PostgreSQL (через pgx pool);
+- Swagger-документацію;
+- заготовку під рекомендації на основі векторної схожості (pgvector).
+
+Важливо: назва "recommendation-system" ширша, ніж поточна реалізація. Зараз у коді повністю робочий auth-модуль, а recommendation-частина тільки частково підготовлена (є модель Item і пошук схожих елементів у репозиторії, але немає HTTP handler/service для цього).
+
+
+2) Карта структури проєкту
+--------------------------
+cmd/
+  api/
+    main.go                     -> точка входу програми
+
+docs/
+  docs.go                       -> згенерований swagger-код (swag)
+  swagger.yaml                  -> OpenAPI/Swagger опис
+  swagger.json                  -> OpenAPI/Swagger опис
+
+internal/
+  auth/
+    handlers.go                 -> HTTP-обробники /auth/*
+    service.go                  -> бізнес-логіка auth
+  config/
+    config.go                   -> читання env-конфігурації
+  database/
+    db.go                       -> ініціалізація pgxpool + schema introspection
+    migrations/
+      0001_create_users.sql     -> SQL міграція таблиці users
+  models/
+    user.go                     -> модель User
+    item.go                     -> модель Item (для рекомендацій)
+  repository/
+    user_repository.go          -> SQL-операції з users
+    item_repo.go                -> SQL-пошук схожих items за embedding
+  security/
+    claims.go                   -> JWT claims
+    jwt.go                      -> генерація/парсинг JWT
+    password.go                 -> hash/verify паролів через bcrypt
+
+Файли кореня:
+- go.mod, go.sum               -> залежності і версія Go
+- .gitignore                   -> ігнор секретів/бінарників
+- env, .env                    -> змінні оточення (секрети; комітити не можна)
+- .env.example                 -> безпечний шаблон змінних середовища
+
+
+3) Які технології тут використовуються і навіщо
+-----------------------------------------------
+- Go 1.24: основна мова.
+- Gin: HTTP router/web framework.
+- pgx/pgxpool: робота з PostgreSQL + пул з'єднань.
+- PostgreSQL + pgcrypto + citext: база, UUID генерація, case-insensitive текст.
+- pgvector-go: передача vector-типу для similarity search.
+- bcrypt (golang.org/x/crypto): безпечне хешування паролів.
+- JWT (golang-jwt/jwt/v5): токени авторизації.
+- swaggo/gin-swagger: автогенерація та UI документації API.
+- godotenv: підвантаження .env у локальному середовищі.
+
+
+4) Повний життєвий цикл запуску сервера
+---------------------------------------
+Файл: cmd/api/main.go
+
+Порядок:
+1. config.Load() читає env.
+2. Логується migrations URL у маскованому вигляді (без пароля).
+3. database.InitDB(cfg.Database.URL) створює пул БД, робить ping.
+4. auth.Init(security.NewJWTService(...)) передає в auth-сервіс JWT-провайдер.
+5. Створюється Gin router.
+6. Реєструються маршрути:
+   - GET /swagger/*any
+   - POST /auth/register
+   - POST /auth/login
+   - GET /ping
+7. r.Run(":<port>") запускає HTTP-сервер.
+
+Ключова ідея: main.go тільки "склеює" модулі (composition root), а не містить бізнес-логіку.
+
+
+5) Як працює реєстрація (end-to-end)
+------------------------------------
+Ланцюг викликів:
+HTTP -> internal/auth/handlers.go:RegisterHandler ->
+internal/auth/service.go:Register ->
+internal/security/password.go:HashPassword ->
+internal/repository/user_repository.go:CreateUser ->
+PostgreSQL.
+
+Покроково:
+1. Handler читає JSON у RegisterRequest через ShouldBindJSON.
+2. Викликає Register(ctx, email, username, password).
+3. Service перевіряє довжину пароля (мінімум 8).
+4. Service хешує пароль bcrypt'ом.
+5. Service створює models.User і передає в repository.CreateUser.
+6. Repository виконує INSERT у users і повертає id.
+7. Service генерує JWT токен через JWTService.Generate(userID, role).
+8. Handler повертає 201 + JSON {token, user}.
+
+Обробка помилок:
+- duplicate email/username (Postgres code 23505) -> 409 Conflict;
+- поганий запит -> 400;
+- не налаштований JWT -> 500;
+- інші -> 400 (на рівні handler).
+
+
+6) Як працює логін (end-to-end)
+-------------------------------
+Ланцюг:
+HTTP -> LoginHandler ->
+service.Login ->
+repository.GetUserByEmail ->
+security.CheckPassword ->
+repository.UpdateLastLogin ->
+JWTService.Generate.
+
+Покроково:
+1. Handler читає LoginRequest.
+2. Service дістає користувача за email.
+3. Перевіряє is_active.
+4. Порівнює пароль з hash через bcrypt.CompareHashAndPassword.
+5. Оновлює last_login_at (якщо така колонка існує).
+6. Генерує JWT.
+7. Віддає 200 + {token, user}.
+
+Статуси:
+- 401 при некоректних credentials;
+- 403 якщо user inactive;
+- 500 якщо JWT не конфігурований;
+- 400 для інших помилок.
+
+
+7) Детальний розбір кожного файлу
+---------------------------------
+
+7.1 cmd/api/main.go
+- Призначення: точка входу.
+- Що важливо:
+  - імпортує `_ "recommendation-system/docs"` для реєстрації swagger-метаданих через init().
+  - має swagger-коментарі для заголовка API.
+  - PingHandler повертає health-check.
+- Зв'язки:
+  - залежить від config, database, auth, security.
+  - викликає тільки публічні API цих пакетів.
+
+7.2 internal/config/config.go
+- Призначення: централізоване читання конфігурації.
+- Структури:
+  - Config, ServerConfig, DatabaseConfig, JWTConfig.
+- Функції:
+  - Load() читає .env (якщо є), будує Config.
+  - mustEnv() валить процес, якщо ключ не заданий.
+  - getEnv() повертає default.
+  - mustDuration() парсить duration типу "1h".
+- Логіка DB URL:
+  - `Database.URL` <- обов'язковий `DATABASE_URL` (runtime, pooler).
+  - `Database.MigrationsURL` <- опційний `MIGRATIONS_DATABASE_URL` (direct DB host).
+  - якщо `MIGRATIONS_DATABASE_URL` порожній, береться fallback: `Database.MigrationsURL = Database.URL`.
+- Зв'язки:
+  - використовується лише в main.go.
+- Обов'язкові env:
+  - DATABASE_URL
+  - JWT_SECRET
+  - JWT_EXPIRES_IN (має default 1h, але теж читається через getEnv)
+  - SERVER_PORT (default 8080)
+- Опційні env:
+  - MIGRATIONS_DATABASE_URL (за замовчуванням = DATABASE_URL)
+
+7.3 internal/database/db.go
+- Призначення: ініціалізація глобального pool `database.DB`.
+- Ключові особливості:
+  - має `MaskDatabaseURL(raw string)` для безпечного логування URL без пароля.
+  - робить DNS lookup хоста БД для діагностики.
+  - має `isPoolerURL(raw string)`: визначає pooler за host, якщо містить `pooler.supabase.com`.
+  - `DefaultQueryExecMode = SimpleProtocol` і `StatementCacheCapacity = 0` застосовуються
+    лише для pooler URL (PgBouncer transaction mode), а не для direct DB URL.
+  - після підключення викликає loadUsersColumns().
+- loadUsersColumns():
+  - читає структуру таблиці users з information_schema.
+  - заповнює map usersColumns.
+  - це дозволяє репозиторію адаптуватись до схеми (backward compatibility).
+- Зв'язки:
+  - використовується репозиторіями та main.
+
+7.4 internal/database/migrations/0001_create_users.sql
+- Створює:
+  - extension pgcrypto (gen_random_uuid);
+  - extension citext (case-insensitive email/username);
+  - enum user_role;
+  - таблицю users з полями профілю/стану/метаданими.
+- Індекси:
+  - unique для email і username;
+  - index по created_at.
+- Тригер:
+  - автоматично оновлює updated_at перед UPDATE.
+
+7.5 internal/models/user.go
+- DTO/доменна модель користувача.
+- Особливості:
+  - UUID як ID.
+  - PasswordHash прихований з JSON (`json:"-"`).
+  - опціональні поля через pointers (*string, *time.Time), щоб відрізняти null від порожнього.
+- Зв'язки:
+  - використовується auth/service, auth/handlers, repository.
+
+7.6 internal/models/item.go
+- Модель елемента для рекомендацій.
+- Embedding: `pgvector.Vector`, прихований у JSON.
+- Зв'язки:
+  - використовується у repository/item_repo.go.
+
+7.7 internal/repository/user_repository.go
+- Шар SQL-доступу до users.
+- Функції:
+  - CreateUser(ctx, *User): INSERT + повернення ID.
+  - GetUserByEmail(ctx, email): dynamic SELECT залежно від реальних колонок.
+  - UpdateLastLogin(ctx, userID): ставить now() в last_login_at.
+  - applyUserDefaults(): fallback значень role/is_active/email_verified.
+- Дуже важлива ідея:
+  - `GetUserByEmail` не "жорстко" зав'язаний на всі колонки.
+  - Якщо schema старіша і немає частини колонок, код все одно працюватиме.
+
+7.8 internal/repository/item_repo.go
+- Функція FindSimilar(userVector []float32).
+- SQL:
+  - `ORDER BY embedding <-> $1 LIMIT 5`.
+  - `<->` у pgvector означає відстань між векторами.
+- Поточний стан:
+  - це лише репозиторій; немає HTTP-ендпойнта чи сервісу, що його викликає.
+  - query вибирає `id, title, category, genres`, хоча Item має ще Description/Embedding.
+
+7.9 internal/security/password.go
+- HashPassword: bcrypt.GenerateFromPassword(DefaultCost).
+- CheckPassword: bcrypt.CompareHashAndPassword.
+- Це стандартна практика для зберігання паролів (ніколи не plaintext).
+
+7.10 internal/security/claims.go
+- Тип JWT claims:
+  - sub = UserID
+  - role = роль
+  - стандартні registered claims (exp, iat).
+
+7.11 internal/security/jwt.go
+- JWTService із secret та ttl.
+- Generate():
+  - створює HS256 токен із exp/iat.
+- Parse():
+  - перевіряє метод підпису (тільки HMAC),
+  - валідує токен,
+  - повертає Claims.
+- Важливо:
+  - Parse в коді є, але зараз ніде не використовується (немає middleware авторизації).
+
+7.12 internal/auth/service.go
+- Бізнес-логіка auth.
+- Глобальна змінна jwtService ініціалізується через Init().
+- Register():
+  - валідація пароля;
+  - hash;
+  - create user;
+  - map DB unique violation в доменні помилки (ErrEmailTaken/ErrUsernameTaken);
+  - generate JWT.
+- Login():
+  - get user by email;
+  - перевірка is_active;
+  - check password;
+  - update last_login_at;
+  - generate JWT.
+- Роль:
+  - відділяє бізнес-правила від HTTP-рівня.
+
+7.13 internal/auth/handlers.go
+- HTTP-рівень для auth.
+- Типи request/response для bind + swagger.
+- RegisterHandler/LoginHandler:
+  - bind JSON;
+  - виклик service-функцій;
+  - мапінг помилок у HTTP status;
+  - формування JSON-відповіді.
+- Є структуровані логи з ip/user-agent.
+
+7.14 docs/docs.go
+- Згенерований код swagger (`DO NOT EDIT`).
+- Регіструє SwaggerInfo у swag через init().
+- Формується з коментарів у Go-коді.
+
+7.15 docs/swagger.yaml і docs/swagger.json
+- Машинно-читаний опис API.
+- Використовується swagger UI (`/swagger/index.html` через gin-swagger).
+- Поточна невідповідність:
+  - swagger описує register/login простіше, ніж фактичні handler-коментарі (наприклад не всі статуси).
+  - ймовірно docs застаріли і потребують регенерації.
+
+7.16 go.mod
+- Модуль: recommendation-system.
+- Go: 1.24.0, toolchain go1.24.11.
+- Прямі залежності: gin, jwt, uuid, pgx, godotenv, pgvector, swaggo, x/crypto.
+- Непрямі залежності: транзитивні пакети для gin/swagger/json/yaml.
+
+7.17 go.sum
+- Контрольні суми всіх модулів.
+- Потрібен для відтворюваності збірки.
+- Редагується автоматично Go tooling.
+
+7.18 .gitignore
+- Ігнорує `.env`, системні артефакти та локальні бінарники.
+
+7.19 env і .env
+- Файли конфігурації середовища.
+- Містять секрети (DATABASE_URL, MIGRATIONS_DATABASE_URL, JWT_SECRET тощо).
+- Критично: секрети не мають потрапляти у git-історію.
+
+7.20 .env.example
+- Безпечний шаблон для локального старту без реальних секретів.
+- Містить приклади:
+  - `DATABASE_URL` (pooler, runtime)
+  - `MIGRATIONS_DATABASE_URL` (direct DB, migrations)
+  - `JWT_SECRET`
+  - `SERVER_PORT`
+
+
+8) Як модулі зв'язані між собою
+-------------------------------
+Напрямки залежностей:
+- `cmd/api` -> `internal/config`, `internal/database`, `internal/auth`, `internal/security`, `docs`.
+- `internal/auth` -> `internal/repository`, `internal/security`, `internal/models`.
+- `internal/repository` -> `internal/database`, `internal/models`.
+- `internal/database` -> зовнішній pgx/pgxpool.
+- `internal/security` -> зовнішній jwt/bcrypt.
+
+Архітектурно:
+- Це близько до layered architecture:
+  - transport (handlers),
+  - service (business logic),
+  - repository (data access),
+  - infrastructure (db/config/security).
+
+
+9) Пояснення Go-концептів на прикладі цього коду
+------------------------------------------------
+- package:
+  - кожна папка internal/* це окремий package.
+- export rule:
+  - імена з великої літери (Load, InitDB, Register) публічні;
+  - з маленької (mustEnv, loadUsersColumns) приватні в межах package.
+- struct tags:
+  - `json:"email"` керує серіалізацією JSON;
+  - `binding:"required"` в Gin задає валідацію.
+- context.Context:
+  - передається від HTTP-запиту в repository для керування timeout/cancel.
+- pointers:
+  - *string/*time.Time для nullable полів.
+- errors:
+  - sentinel errors (ErrInvalidCredentials) дозволяють чітко мапити у HTTP статуси.
+- init():
+  - у docs/docs.go виконується при імпорті пакета.
+- blank import `_`:
+  - використовується, щоб виконати init() без прямого звернення до символів пакета.
+
+
+10) Поточні API ендпойнти
+-------------------------
+- GET /ping
+- POST /auth/register
+- POST /auth/login
+- GET /swagger/*any
+
+Приклади high-level:
+- register: body {email, username, password} -> 201 + token + user
+- login: body {email, password} -> 200 + token + user
+
+
+11) Що вже зроблено для рекомендацій, а чого бракує
+----------------------------------------------------
+Вже є:
+- модель Item;
+- repository-пошук схожих item через pgvector `<->`.
+
+Бракує:
+- міграції таблиці items із vector-колонкою;
+- сервісу рекомендацій (business logic);
+- HTTP handler/route (наприклад GET /recommendations);
+- обчислення/отримання user embedding;
+- middleware авторизації для захищених маршрутів.
+
+
+12) Технічні ризики та покращення
+---------------------------------
+- JWT Parse не використовується: немає auth middleware.
+- Глобальні синглтони (`database.DB`, `jwtService`) ускладнюють тестування.
+- Відсутні unit/integration тести.
+- Відсутній migration runner (SQL є, але автоматичного застосування немає).
+- Можлива невідповідність swagger-файлів реальному коду.
+- Наявність секретів у робочих env-файлах вимагає обережності з комітами.
+
+
+13) Короткий підсумок для новачка в Go
+--------------------------------------
+Якщо вперше бачиш Go, дивись проєкт у такому порядку:
+1. `cmd/api/main.go` -> зрозумій запуск.
+2. `internal/config/config.go` -> звідки беруться параметри.
+3. `internal/auth/handlers.go` -> як HTTP запит потрапляє у код.
+4. `internal/auth/service.go` -> де бізнес-правила.
+5. `internal/repository/user_repository.go` -> як робиться SQL.
+6. `internal/security/*` -> пароль і JWT.
+7. `internal/database/migrations/0001_create_users.sql` -> яка реальна схема БД.
+
+Після цього ти вже зможеш додавати нові фічі: новий handler -> service -> repository -> migration -> swagger.

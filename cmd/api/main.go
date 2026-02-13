@@ -25,6 +25,7 @@ import (
 func main() {
 	// 1. Load config
 	cfg := config.Load()
+	log.Printf("🔎 Migrations DB URL: %s", database.MaskDatabaseURL(cfg.Database.MigrationsURL))
 
 	// 2. Init database
 	database.InitDB(cfg.Database.URL)

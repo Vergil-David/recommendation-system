@@ -17,7 +17,7 @@ var usersColumns map[string]bool
 
 func InitDB(databaseURL string) {
 	var err error
-	redacted := redactDatabaseURL(databaseURL)
+	redacted := MaskDatabaseURL(databaseURL)
 	fmt.Printf("🔎 DB URL: %s\n", redacted)
 
 	if host := extractHost(databaseURL); host != "" {
@@ -38,9 +38,11 @@ func InitDB(databaseURL string) {
 		fmt.Fprintf(os.Stderr, "❌ Failed to parse database url: %v\n", err)
 		os.Exit(1)
 	}
-	// Disable prepared statement cache to avoid 42P05 with poolers (e.g., PgBouncer transaction mode).
-	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-	cfg.ConnConfig.StatementCacheCapacity = 0
+	// Use SimpleProtocol only for pooler endpoints (e.g., PgBouncer transaction mode).
+	if isPoolerURL(databaseURL) {
+		cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+		cfg.ConnConfig.StatementCacheCapacity = 0
+	}
 
 	DB, err = pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {
@@ -57,7 +59,7 @@ func InitDB(databaseURL string) {
 	fmt.Println("✅ Database connection established")
 }
 
-func redactDatabaseURL(raw string) string {
+func MaskDatabaseURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return "<invalid database url>"
@@ -74,6 +76,14 @@ func extractHost(raw string) string {
 		return ""
 	}
 	return u.Hostname()
+}
+
+func isPoolerURL(raw string) bool {
+	host := extractHost(raw)
+	if host == "" {
+		return false
+	}
+	return strings.Contains(strings.ToLower(host), "pooler.supabase.com")
 }
 
 func HasUserColumn(name string) bool {
