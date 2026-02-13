@@ -1,4 +1,14 @@
 definitions:
+  auth.AuthResponse:
+    properties:
+      token:
+        type: string
+      user:
+        $ref: '#/definitions/models.User'
+    required:
+    - token
+    - user
+    type: object
   auth.LoginRequest:
     properties:
       email:
@@ -19,9 +29,44 @@ definitions:
       password:
         example: secret123
         type: string
+      username:
+        example: johndoe
+        type: string
     required:
     - email
     - password
+    - username
+    type: object
+  models.User:
+    properties:
+      avatar_url:
+        type: string
+      bio:
+        type: string
+      created_at:
+        format: date-time
+        type: string
+      display_name:
+        type: string
+      email:
+        type: string
+      email_verified:
+        type: boolean
+      id:
+        format: uuid
+        type: string
+      is_active:
+        type: boolean
+      last_login_at:
+        format: date-time
+        type: string
+      role:
+        type: string
+      updated_at:
+        format: date-time
+        type: string
+      username:
+        type: string
     type: object
 info:
   contact: {}
@@ -46,9 +91,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/auth.AuthResponse'
         "400":
           description: Bad Request
           schema:
@@ -82,8 +125,7 @@ paths:
         "201":
           description: Created
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/auth.AuthResponse'
         "400":
           description: Bad Request
           schema:

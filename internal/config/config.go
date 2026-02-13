@@ -41,7 +41,7 @@ func Load() *Config {
 		},
 		JWT: JWTConfig{
 			Secret:    mustEnv("JWT_SECRET"),
-			ExpiresIn: time.Hour, // поки хардкод, потім можна винести
+			ExpiresIn: mustDuration("JWT_EXPIRES_IN", "1h"),
 		},
 	}
 
@@ -62,4 +62,13 @@ func getEnv(key, def string) string {
 		return def
 	}
 	return val
+}
+
+func mustDuration(key, def string) time.Duration {
+	val := getEnv(key, def)
+	d, err := time.ParseDuration(val)
+	if err != nil {
+		log.Fatalf("❌ invalid duration for %s: %v", key, err)
+	}
+	return d
 }

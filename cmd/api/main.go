@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"log"
 	"net/http"
 
@@ -15,17 +14,24 @@ import (
 	"recommendation-system/internal/auth"
 	"recommendation-system/internal/config"
 	"recommendation-system/internal/database"
+	"recommendation-system/internal/security"
 )
 
-// @title Book Recommendation System API
-// @version 1.0
+// @title       Book Recommendation System API
+// @version     1.0
+// @description API для реєстрації, автентифікації та базових сервісів системи рекомендацій.
+// @BasePath    /
+// @schemes     http
 func main() {
 	// 1. Load config
 	cfg := config.Load()
 
 	// 2. Init database
-	database.InitDB(cfg.DatabaseURL)
-	defer database.DB.Close(context.Background())
+	database.InitDB(cfg.Database.URL)
+	defer database.DB.Close()
+
+	// 2.1 Init JWT service
+	auth.Init(security.NewJWTService(cfg.JWT.Secret, cfg.JWT.ExpiresIn))
 
 	// 3. Gin setup
 	r := gin.Default()
@@ -40,10 +46,21 @@ func main() {
 
 	r.GET("/ping", PingHandler)
 
-	log.Printf("🚀 Server running on :%s", cfg.ServerPort)
-	r.Run(":" + cfg.ServerPort)
+	log.Printf("🚀 Server running on :%s", cfg.Server.Port)
+	r.Run(":" + cfg.Server.Port)
 }
 
+// PingHandler godoc
+// @Summary     Перевірка доступності сервісу
+// @Description Повертає "pong" якщо сервіс працює.
+// @Tags        health
+// @Produce     json
+// @Success     200 {object} PingResponse
+// @Router      /ping [get]
 func PingHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "pong"})
+}
+
+type PingResponse struct {
+	Message string `json:"message" example:"pong"`
 }

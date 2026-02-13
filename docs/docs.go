@@ -43,10 +43,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/auth.AuthResponse"
                         }
                     },
                     "400": {
@@ -98,8 +95,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/auth.AuthResponse"
                         }
                     },
                     "400": {
@@ -125,6 +121,21 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "auth.AuthResponse": {
+            "type": "object",
+            "required": [
+                "token",
+                "user"
+            ],
+            "properties": {
+                "token": {
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/models.User"
+                }
+            }
+        },
         "auth.LoginRequest": {
             "type": "object",
             "required": [
@@ -146,7 +157,8 @@ const docTemplate = `{
             "type": "object",
             "required": [
                 "email",
-                "password"
+                "password",
+                "username"
             ],
             "properties": {
                 "email": {
@@ -156,6 +168,55 @@ const docTemplate = `{
                 "password": {
                     "type": "string",
                     "example": "secret123"
+                },
+                "username": {
+                    "type": "string",
+                    "example": "johndoe"
+                }
+            }
+        },
+        "models.User": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "avatar_url": {
+                    "type": "string"
+                },
+                "bio": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "email_verified": {
+                    "type": "boolean"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "last_login_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "created_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "updated_at": {
+                    "type": "string",
+                    "format": "date-time"
                 }
             }
         }
