@@ -15,6 +15,7 @@ import (
 	"recommendation-system/internal/config"
 	"recommendation-system/internal/database"
 	"recommendation-system/internal/security"
+	"recommendation-system/internal/users"
 )
 
 // @title       Book Recommendation System API
@@ -22,6 +23,9 @@ import (
 // @description API для реєстрації, автентифікації та базових сервісів системи рекомендацій.
 // @BasePath    /
 // @schemes     http
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
 func main() {
 	// 1. Load config
 	cfg := config.Load()
@@ -43,6 +47,12 @@ func main() {
 	{
 		authGroup.POST("/register", auth.RegisterHandler)
 		authGroup.POST("/login", auth.LoginHandler)
+	}
+
+	usersGroup := r.Group("/users")
+	usersGroup.Use(auth.RequireAuth())
+	{
+		usersGroup.GET("/me", users.GetMeHandler)
 	}
 
 	r.GET("/ping", PingHandler)

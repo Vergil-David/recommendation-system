@@ -31,6 +31,7 @@ docs/
 internal/
   auth/
     handlers.go                 -> HTTP-обробники /auth/*
+    middleware.go               -> JWT middleware (Bearer, Parse, userID/role у context)
     service.go                  -> бізнес-логіка auth
   config/
     config.go                   -> читання env-конфігурації
@@ -49,6 +50,9 @@ internal/
     claims.go                   -> JWT claims
     jwt.go                      -> генерація/парсинг JWT
     password.go                 -> hash/verify паролів через bcrypt
+  users/
+    handlers.go                 -> HTTP-обробник GET /users/me
+    service.go                  -> бізнес-логіка отримання профілю current user
 
 Файли кореня:
 - go.mod, go.sum               -> залежності і версія Go
@@ -268,7 +272,7 @@ JWTService.Generate.
   - валідує токен,
   - повертає Claims.
 - Важливо:
-  - Parse в коді є, але зараз ніде не використовується (немає middleware авторизації).
+  - Parse використовується в `internal/auth/middleware.go` для protected маршрутів.
 
 7.13 internal/auth/service.go
 - Бізнес-логіка auth.
@@ -400,12 +404,10 @@ JWTService.Generate.
 - сервісу рекомендацій (business logic);
 - HTTP handler/route (наприклад GET /recommendations);
 - обчислення/отримання user embedding;
-- middleware авторизації для захищених маршрутів.
 
 
 12) Технічні ризики та покращення
 ---------------------------------
-- JWT Parse не використовується: немає auth middleware.
 - Глобальні синглтони (`database.DB`, `jwtService`) ускладнюють тестування.
 - Відсутні unit/integration тести.
 - Migration runner додано (`cmd/migrate`), викликається вручну і не запускається автоматично разом з API.

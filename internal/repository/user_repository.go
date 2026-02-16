@@ -14,6 +14,8 @@ import (
 	"recommendation-system/internal/models"
 )
 
+var ErrUserNotFound = errors.New("user not found")
+
 func CreateUser(ctx context.Context, user *models.User) error {
 	query := `
 		insert into users (email, username, password_hash)
@@ -30,32 +32,36 @@ func CreateUser(ctx context.Context, user *models.User) error {
 }
 
 func GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
-	cols := []string{"id", "email", "username", "password_hash"}
-	if database.HasUserColumn("role") {
-		cols = append(cols, "role")
-	}
-	if database.HasUserColumn("email_verified") {
-		cols = append(cols, "email_verified")
-	}
-	if database.HasUserColumn("is_active") {
-		cols = append(cols, "is_active")
-	}
-	if database.HasUserColumn("last_login_at") {
-		cols = append(cols, "last_login_at")
-	}
-	if database.HasUserColumn("created_at") {
-		cols = append(cols, "created_at")
-	}
-	if database.HasUserColumn("updated_at") {
-		cols = append(cols, "updated_at")
-	}
-
 	query := fmt.Sprintf(`
 		select %s
 		from users
 		where email = $1
-	`, strings.Join(cols, ", "))
+	`, strings.Join(userSelectColumns(), ", "))
 
+	user, err := scanUserRow(database.DB.QueryRow(ctx, query, email))
+	if err != nil {
+		return nil, err
+	}
+	applyUserDefaults(user)
+	return user, nil
+}
+
+func GetUserByID(ctx context.Context, id uuid.UUID) (*models.User, error) {
+	query := fmt.Sprintf(`
+		select %s
+		from users
+		where id = $1
+	`, strings.Join(userSelectColumns(), ", "))
+
+	user, err := scanUserRow(database.DB.QueryRow(ctx, query, id))
+	if err != nil {
+		return nil, err
+	}
+	applyUserDefaults(user)
+	return user, nil
+}
+
+func scanUserRow(row pgx.Row) (*models.User, error) {
 	var user models.User
 	var role sql.NullString
 	var emailVerified sql.NullBool
@@ -63,6 +69,9 @@ func GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
 	var lastLogin sql.NullTime
 	var createdAt sql.NullTime
 	var updatedAt sql.NullTime
+	var displayName sql.NullString
+	var avatarURL sql.NullString
+	var bio sql.NullString
 
 	dest := []any{&user.ID, &user.Email, &user.Username, &user.PasswordHash}
 	if database.HasUserColumn("role") {
@@ -83,12 +92,20 @@ func GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
 	if database.HasUserColumn("updated_at") {
 		dest = append(dest, &updatedAt)
 	}
+	if database.HasUserColumn("display_name") {
+		dest = append(dest, &displayName)
+	}
+	if database.HasUserColumn("avatar_url") {
+		dest = append(dest, &avatarURL)
+	}
+	if database.HasUserColumn("bio") {
+		dest = append(dest, &bio)
+	}
 
-	err := database.DB.QueryRow(ctx, query, email).Scan(dest...)
-
+	err := row.Scan(dest...)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, errors.New("user not found")
+			return nil, ErrUserNotFound
 		}
 		return nil, err
 	}
@@ -111,8 +128,16 @@ func GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
 	if updatedAt.Valid {
 		user.UpdatedAt = updatedAt.Time
 	}
+	if displayName.Valid {
+		user.DisplayName = &displayName.String
+	}
+	if avatarURL.Valid {
+		user.AvatarURL = &avatarURL.String
+	}
+	if bio.Valid {
+		user.Bio = &bio.String
+	}
 
-	applyUserDefaults(&user)
 	return &user, nil
 }
 
@@ -140,4 +165,36 @@ func applyUserDefaults(user *models.User) {
 	if !database.HasUserColumn("is_active") {
 		user.IsActive = true
 	}
+}
+
+func userSelectColumns() []string {
+	cols := []string{"id", "email", "username", "password_hash"}
+	if database.HasUserColumn("role") {
+		cols = append(cols, "role")
+	}
+	if database.HasUserColumn("email_verified") {
+		cols = append(cols, "email_verified")
+	}
+	if database.HasUserColumn("is_active") {
+		cols = append(cols, "is_active")
+	}
+	if database.HasUserColumn("last_login_at") {
+		cols = append(cols, "last_login_at")
+	}
+	if database.HasUserColumn("created_at") {
+		cols = append(cols, "created_at")
+	}
+	if database.HasUserColumn("updated_at") {
+		cols = append(cols, "updated_at")
+	}
+	if database.HasUserColumn("display_name") {
+		cols = append(cols, "display_name")
+	}
+	if database.HasUserColumn("avatar_url") {
+		cols = append(cols, "avatar_url")
+	}
+	if database.HasUserColumn("bio") {
+		cols = append(cols, "bio")
+	}
+	return cols
 }
