@@ -20,6 +20,8 @@
 cmd/
   api/
     main.go                     -> точка входу програми
+  migrate/
+    main.go                     -> CLI для міграцій (up/down/version)
 
 docs/
   docs.go                       -> згенерований swagger-код (swag)
@@ -35,7 +37,8 @@ internal/
   database/
     db.go                       -> ініціалізація pgxpool + schema introspection
     migrations/
-      0001_create_users.sql     -> SQL міграція таблиці users
+      0001_upgrade_users.up.sql   -> idempotent upgrade існуючої users
+      0001_upgrade_users.down.sql -> best-effort rollback users upgrade
   models/
     user.go                     -> модель User
     item.go                     -> модель Item (для рекомендацій)
@@ -162,8 +165,8 @@ JWTService.Generate.
   - getEnv() повертає default.
   - mustDuration() парсить duration типу "1h".
 - Логіка DB URL:
-  - `Database.URL` <- обов'язковий `DATABASE_URL` (runtime, pooler).
-  - `Database.MigrationsURL` <- опційний `MIGRATIONS_DATABASE_URL` (direct DB host).
+  - `Database.URL` <- обов'язковий `DATABASE_URL` (runtime, зазвичай pooler).
+  - `Database.MigrationsURL` <- опційний `MIGRATIONS_DATABASE_URL` (бажано direct, але може бути pooler).
   - якщо `MIGRATIONS_DATABASE_URL` порожній, береться fallback: `Database.MigrationsURL = Database.URL`.
 - Зв'язки:
   - використовується лише в main.go.
@@ -191,19 +194,26 @@ JWTService.Generate.
 - Зв'язки:
   - використовується репозиторіями та main.
 
-7.4 internal/database/migrations/0001_create_users.sql
-- Створює:
-  - extension pgcrypto (gen_random_uuid);
-  - extension citext (case-insensitive email/username);
-  - enum user_role;
-  - таблицю users з полями профілю/стану/метаданими.
-- Індекси:
-  - unique для email і username;
-  - index по created_at.
-- Тригер:
-  - автоматично оновлює updated_at перед UPDATE.
+7.4 internal/database/migrations/0001_upgrade_users.up.sql
+- Не створює таблицю users заново; оновлює існуючу схему.
+- Додає (idempotent):
+  - extension `pgcrypto`, `citext`;
+  - enum `user_role` (через DO/EXECUTE якщо типу ще немає);
+  - конвертацію `users.email` і `users.username` в `citext`;
+  - нові колонки: role, email_verified, is_active, last_login_at, updated_at, display_name, avatar_url, bio;
+  - default для `created_at` = `now()`;
+  - unique індекси `users_email_uq`, `users_username_uq`;
+  - trigger function `set_updated_at()` і trigger `users_set_updated_at`.
 
-7.5 internal/models/user.go
+7.5 internal/database/migrations/0001_upgrade_users.down.sql
+- Best-effort rollback:
+  - прибирає trigger/function;
+  - прибирає `users_email_uq`, `users_username_uq`;
+  - видаляє додані колонки через `IF EXISTS`;
+  - конвертує `citext` назад у `text`;
+  - видаляє `user_role` якщо тип існує.
+
+7.6 internal/models/user.go
 - DTO/доменна модель користувача.
 - Особливості:
   - UUID як ID.
@@ -212,13 +222,13 @@ JWTService.Generate.
 - Зв'язки:
   - використовується auth/service, auth/handlers, repository.
 
-7.6 internal/models/item.go
+7.7 internal/models/item.go
 - Модель елемента для рекомендацій.
 - Embedding: `pgvector.Vector`, прихований у JSON.
 - Зв'язки:
   - використовується у repository/item_repo.go.
 
-7.7 internal/repository/user_repository.go
+7.8 internal/repository/user_repository.go
 - Шар SQL-доступу до users.
 - Функції:
   - CreateUser(ctx, *User): INSERT + повернення ID.
@@ -229,7 +239,7 @@ JWTService.Generate.
   - `GetUserByEmail` не "жорстко" зав'язаний на всі колонки.
   - Якщо schema старіша і немає частини колонок, код все одно працюватиме.
 
-7.8 internal/repository/item_repo.go
+7.9 internal/repository/item_repo.go
 - Функція FindSimilar(userVector []float32).
 - SQL:
   - `ORDER BY embedding <-> $1 LIMIT 5`.
@@ -238,18 +248,18 @@ JWTService.Generate.
   - це лише репозиторій; немає HTTP-ендпойнта чи сервісу, що його викликає.
   - query вибирає `id, title, category, genres`, хоча Item має ще Description/Embedding.
 
-7.9 internal/security/password.go
+7.10 internal/security/password.go
 - HashPassword: bcrypt.GenerateFromPassword(DefaultCost).
 - CheckPassword: bcrypt.CompareHashAndPassword.
 - Це стандартна практика для зберігання паролів (ніколи не plaintext).
 
-7.10 internal/security/claims.go
+7.11 internal/security/claims.go
 - Тип JWT claims:
   - sub = UserID
   - role = роль
   - стандартні registered claims (exp, iat).
 
-7.11 internal/security/jwt.go
+7.12 internal/security/jwt.go
 - JWTService із secret та ttl.
 - Generate():
   - створює HS256 токен із exp/iat.
@@ -260,7 +270,7 @@ JWTService.Generate.
 - Важливо:
   - Parse в коді є, але зараз ніде не використовується (немає middleware авторизації).
 
-7.12 internal/auth/service.go
+7.13 internal/auth/service.go
 - Бізнес-логіка auth.
 - Глобальна змінна jwtService ініціалізується через Init().
 - Register():
@@ -278,7 +288,7 @@ JWTService.Generate.
 - Роль:
   - відділяє бізнес-правила від HTTP-рівня.
 
-7.13 internal/auth/handlers.go
+7.14 internal/auth/handlers.go
 - HTTP-рівень для auth.
 - Типи request/response для bind + swagger.
 - RegisterHandler/LoginHandler:
@@ -288,42 +298,42 @@ JWTService.Generate.
   - формування JSON-відповіді.
 - Є структуровані логи з ip/user-agent.
 
-7.14 docs/docs.go
+7.15 docs/docs.go
 - Згенерований код swagger (`DO NOT EDIT`).
 - Регіструє SwaggerInfo у swag через init().
 - Формується з коментарів у Go-коді.
 
-7.15 docs/swagger.yaml і docs/swagger.json
+7.16 docs/swagger.yaml і docs/swagger.json
 - Машинно-читаний опис API.
 - Використовується swagger UI (`/swagger/index.html` через gin-swagger).
 - Поточна невідповідність:
   - swagger описує register/login простіше, ніж фактичні handler-коментарі (наприклад не всі статуси).
   - ймовірно docs застаріли і потребують регенерації.
 
-7.16 go.mod
+7.17 go.mod
 - Модуль: recommendation-system.
 - Go: 1.24.0, toolchain go1.24.11.
 - Прямі залежності: gin, jwt, uuid, pgx, godotenv, pgvector, swaggo, x/crypto.
 - Непрямі залежності: транзитивні пакети для gin/swagger/json/yaml.
 
-7.17 go.sum
+7.18 go.sum
 - Контрольні суми всіх модулів.
 - Потрібен для відтворюваності збірки.
 - Редагується автоматично Go tooling.
 
-7.18 .gitignore
+7.19 .gitignore
 - Ігнорує `.env`, системні артефакти та локальні бінарники.
 
-7.19 env і .env
+7.20 env і .env
 - Файли конфігурації середовища.
 - Містять секрети (DATABASE_URL, MIGRATIONS_DATABASE_URL, JWT_SECRET тощо).
 - Критично: секрети не мають потрапляти у git-історію.
 
-7.20 .env.example
+7.21 .env.example
 - Безпечний шаблон для локального старту без реальних секретів.
 - Містить приклади:
   - `DATABASE_URL` (pooler, runtime)
-  - `MIGRATIONS_DATABASE_URL` (direct DB, migrations)
+  - `MIGRATIONS_DATABASE_URL` (для міграцій: direct рекомендовано, pooler допустимо)
   - `JWT_SECRET`
   - `SERVER_PORT`
 
@@ -398,7 +408,7 @@ JWTService.Generate.
 - JWT Parse не використовується: немає auth middleware.
 - Глобальні синглтони (`database.DB`, `jwtService`) ускладнюють тестування.
 - Відсутні unit/integration тести.
-- Відсутній migration runner (SQL є, але автоматичного застосування немає).
+- Migration runner додано (`cmd/migrate`), викликається вручну і не запускається автоматично разом з API.
 - Можлива невідповідність swagger-файлів реальному коду.
 - Наявність секретів у робочих env-файлах вимагає обережності з комітами.
 
@@ -412,6 +422,6 @@ JWTService.Generate.
 4. `internal/auth/service.go` -> де бізнес-правила.
 5. `internal/repository/user_repository.go` -> як робиться SQL.
 6. `internal/security/*` -> пароль і JWT.
-7. `internal/database/migrations/0001_create_users.sql` -> яка реальна схема БД.
+7. `cmd/migrate/main.go` та `internal/database/migrations/0001_upgrade_users.*.sql` -> як оновлюється реальна схема БД.
 
 Після цього ти вже зможеш додавати нові фічі: новий handler -> service -> repository -> migration -> swagger.
