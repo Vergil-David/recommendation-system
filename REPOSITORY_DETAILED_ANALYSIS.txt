@@ -33,6 +33,9 @@ internal/
     handlers.go                 -> HTTP-обробники /auth/*
     middleware.go               -> JWT middleware (Bearer, Parse, userID/role у context)
     service.go                  -> бізнес-логіка auth
+  friends/
+    handlers.go                 -> HTTP-обробники GET /friends, POST /friends/requests, POST /friends/requests/respond
+    service.go                  -> бізнес-логіка friend requests (list/send/respond)
   config/
     config.go                   -> читання env-конфігурації
   database/
@@ -40,12 +43,15 @@ internal/
     migrations/
       0001_upgrade_users.up.sql   -> idempotent upgrade існуючої users
       0001_upgrade_users.down.sql -> best-effort rollback users upgrade
+      0002_friendships_constraints.up.sql   -> обмеження статусів/унікальності/індекси friendships
+      0002_friendships_constraints.down.sql -> best-effort rollback для constraints/indexes friendships
   models/
     user.go                     -> модель User
     item.go                     -> модель Item (для рекомендацій)
   repository/
     user_repository.go          -> SQL-операції з users
     item_repo.go                -> SQL-пошук схожих items за embedding
+    friendships_repository.go   -> SQL-операції для friend requests + accepted mirror row
   security/
     claims.go                   -> JWT claims
     jwt.go                      -> генерація/парсинг JWT
@@ -84,10 +90,15 @@ internal/
 3. database.InitDB(cfg.Database.URL) створює пул БД, робить ping.
 4. auth.Init(security.NewJWTService(...)) передає в auth-сервіс JWT-провайдер.
 5. Створюється Gin router.
+5.1 Встановлюються trusted proxies: `r.SetTrustedProxies(nil)` (безпечний дефолт без довірених proxy).
 6. Реєструються маршрути:
    - GET /swagger/*any
    - POST /auth/register
    - POST /auth/login
+   - GET /users/me (protected)
+   - GET /friends (protected)
+   - POST /friends/requests (protected)
+   - POST /friends/requests/respond (protected)
    - GET /ping
 7. r.Run(":<port>") запускає HTTP-сервер.
 
@@ -146,6 +157,73 @@ JWTService.Generate.
 - 400 для інших помилок.
 
 
+6.1) Як працює відправка friend request (end-to-end)
+-----------------------------------------------------
+Ланцюг:
+HTTP -> internal/friends/handlers.go:SendFriendRequestHandler ->
+internal/friends/service.go:SendFriendRequest ->
+internal/repository/user_repository.go:GetUserByID ->
+internal/repository/friendships_repository.go:GetFriendshipStatus/CreateFriendRequest/UpdateFriendRequestStatus ->
+PostgreSQL.
+
+Маршрут захищений middleware `auth.RequireAuth()` і вимагає Bearer token.
+
+Покроково:
+1. Handler перевіряє JWT-контекст, читає `to_user_id` з JSON і парсить UUID.
+2. Service блокує self-request (from == to).
+3. Service перевіряє, що target user існує.
+4. Service перевіряє наявний запис у `friendships`:
+   - `pending` або `accepted` -> conflict;
+   - `rejected` -> перевід у `pending` через update;
+   - відсутній запис -> insert нового `pending`.
+5. Handler повертає 201 + `{ "status": "pending" }`.
+
+
+6.2) Як працює accept/reject friend request (end-to-end)
+---------------------------------------------------------
+Ланцюг:
+HTTP -> internal/friends/handlers.go:RespondToFriendRequestHandler ->
+internal/friends/service.go:RespondToFriendRequest ->
+internal/repository/friendships_repository.go:GetFriendshipStatus/UpdateFriendRequestStatus/EnsureAcceptedMirror ->
+PostgreSQL.
+
+Маршрут захищений middleware `auth.RequireAuth()` і вимагає Bearer token.
+
+Покроково:
+1. Handler дістає `receiverID` з auth context (`userID`), читає JSON `{from_user_id, action}`.
+2. Endpoint шукає тільки напрямлений запит `friendships(from_user_id -> receiverID_з_token)`; відповісти може лише receiver з токена.
+3. Service валідовує `action` (`accept` або `reject`) і sanity-check: `from_user_id != receiverID`.
+4. Окремого `GetUserByID` lookup немає; існування запиту визначається наявністю рядка в `friendships` (з FK на users).
+5. Service перевіряє, що поточний статус запиту саме `pending`.
+6. Якщо `accept`:
+   - оновлює поточний рядок на `accepted`;
+   - гарантує mirror-рядок `receiver->requester` зі статусом `accepted` через upsert (`ON CONFLICT DO NOTHING`).
+7. Якщо `reject`:
+   - оновлює статус на `rejected`.
+8. Handler повертає 200 + `{ "status": "accepted" }` або `{ "status": "rejected" }`.
+
+
+6.3) Як працює отримання списку друзів (end-to-end)
+----------------------------------------------------
+Ланцюг:
+HTTP -> internal/friends/handlers.go:GetFriendsHandler ->
+internal/friends/service.go:GetFriends ->
+internal/repository/friendships_repository.go:ListAcceptedFriendIDs ->
+internal/repository/user_repository.go:GetUsersByIDs ->
+PostgreSQL.
+
+Маршрут захищений middleware `auth.RequireAuth()` і вимагає Bearer token.
+
+Покроково:
+1. Handler дістає поточний `userID` з auth context.
+2. Service запитує `friend_id` зі `friendships` для `user_id=currentUser` і `status='accepted'`.
+3. Service завантажує профілі друзів одним запитом `users where id = any($1)`.
+4. Handler повертає 200 + `{ "friends": [...] }`.
+
+Примітка:
+- Простий запит на список друзів працює завдяки mirror-рядку `accepted`, який створюється під час `accept`.
+
+
 7) Детальний розбір кожного файлу
 ---------------------------------
 
@@ -154,6 +232,7 @@ JWTService.Generate.
 - Що важливо:
   - імпортує `_ "recommendation-system/docs"` для реєстрації swagger-метаданих через init().
   - має swagger-коментарі для заголовка API.
+  - після `gin.Default()` явно вимикає trusted proxies через `SetTrustedProxies(nil)` для безпечнішої обробки клієнтського IP.
   - PingHandler повертає health-check.
 - Зв'язки:
   - залежить від config, database, auth, security.
@@ -310,9 +389,10 @@ JWTService.Generate.
 7.16 docs/swagger.yaml і docs/swagger.json
 - Машинно-читаний опис API.
 - Використовується swagger UI (`/swagger/index.html` через gin-swagger).
-- Поточна невідповідність:
-  - swagger описує register/login простіше, ніж фактичні handler-коментарі (наприклад не всі статуси).
-  - ймовірно docs застаріли і потребують регенерації.
+- Генеруються CLI-утилітою `swag` із Go-коментарів (swaggo/swag).
+- Після додавання або зміни endpoint'ів потрібно регенерувати:
+  - `swag init -g cmd/api/main.go`
+  - це оновлює `docs/docs.go`, `docs/swagger.yaml`, `docs/swagger.json`.
 
 7.17 go.mod
 - Модуль: recommendation-system.
@@ -345,8 +425,9 @@ JWTService.Generate.
 8) Як модулі зв'язані між собою
 -------------------------------
 Напрямки залежностей:
-- `cmd/api` -> `internal/config`, `internal/database`, `internal/auth`, `internal/security`, `docs`.
+- `cmd/api` -> `internal/config`, `internal/database`, `internal/auth`, `internal/friends`, `internal/security`, `docs`.
 - `internal/auth` -> `internal/repository`, `internal/security`, `internal/models`.
+- `internal/friends` -> `internal/repository`, `internal/auth`.
 - `internal/repository` -> `internal/database`, `internal/models`.
 - `internal/database` -> зовнішній pgx/pgxpool.
 - `internal/security` -> зовнішній jwt/bcrypt.
@@ -386,11 +467,18 @@ JWTService.Generate.
 - GET /ping
 - POST /auth/register
 - POST /auth/login
+- GET /users/me (Bearer token required)
+- GET /friends (Bearer token required)
+- POST /friends/requests (Bearer token required)
+- POST /friends/requests/respond (Bearer token required)
 - GET /swagger/*any
 
 Приклади high-level:
 - register: body {email, username, password} -> 201 + token + user
 - login: body {email, password} -> 200 + token + user
+- list friends: GET /friends -> 200 + {friends: [...]}
+- send friend request: body {to_user_id} -> 201 + {status: "pending"}
+- respond to friend request: body {from_user_id, action} -> 200 + {status: "accepted"|"rejected"}
 
 
 11) Що вже зроблено для рекомендацій, а чого бракує
@@ -413,6 +501,8 @@ JWTService.Generate.
 - Migration runner додано (`cmd/migrate`), викликається вручну і не запускається автоматично разом з API.
 - Можлива невідповідність swagger-файлів реальному коду.
 - Наявність секретів у робочих env-файлах вимагає обережності з комітами.
+- Модель `friendships` зараз напрямлена: `user_id` = requester, `friend_id` = addressee; для fully mutual friendship та accept/reject workflow може знадобитися додаткова логіка.
+- При `accept` зберігається mirror-рядок у зворотному напрямку (`accepted`), тому логіка консистентності двох напрямків потребує уваги при майбутніх змінах (remove/block/resync).
 
 
 13) Короткий підсумок для новачка в Go
@@ -424,6 +514,23 @@ JWTService.Generate.
 4. `internal/auth/service.go` -> де бізнес-правила.
 5. `internal/repository/user_repository.go` -> як робиться SQL.
 6. `internal/security/*` -> пароль і JWT.
-7. `cmd/migrate/main.go` та `internal/database/migrations/0001_upgrade_users.*.sql` -> як оновлюється реальна схема БД.
+7. `cmd/migrate/main.go` та `internal/database/migrations/0001_upgrade_users.*.sql`, `internal/database/migrations/0002_friendships_constraints.*.sql` -> як оновлюється реальна схема БД.
 
 Після цього ти вже зможеш додавати нові фічі: новий handler -> service -> repository -> migration -> swagger.
+
+
+14) Swagger: синхронізація після змін API
+-----------------------------------------
+Коли додаються/змінюються endpoint'и, swagger-файли потрібно регенерувати CLI-командою:
+- `swag init -g cmd/api/main.go`
+
+Це оновлює:
+- `docs/docs.go`
+- `docs/swagger.json`
+- `docs/swagger.yaml`
+
+Мінімальна перевірка після регенерації:
+1. У swagger є нові маршрути (зокрема `POST /friends/requests`, `POST /friends/requests/respond`, `GET /users/me`).
+2. На protected-роутах є `BearerAuth`.
+3. Модель `models.User` не містить `PasswordHash`.
+4. Немає дублікатів моделей користувача у definitions.

@@ -61,6 +61,53 @@ func GetUserByID(ctx context.Context, id uuid.UUID) (*models.User, error) {
 	return user, nil
 }
 
+func GetUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]models.User, error) {
+	if len(ids) == 0 {
+		return []models.User{}, nil
+	}
+
+	query := fmt.Sprintf(`
+		select %s
+		from users
+		where id = any($1)
+	`, strings.Join(userSelectColumns(), ", "))
+
+	rows, err := database.DB.Query(ctx, query, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	usersByID := make(map[uuid.UUID]models.User, len(ids))
+	for rows.Next() {
+		user, err := scanUserRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		applyUserDefaults(user)
+		usersByID[user.ID] = *user
+	}
+	if rows.Err() != nil {
+		return nil, rows.Err()
+	}
+
+	users := make([]models.User, 0, len(usersByID))
+	seen := make(map[uuid.UUID]struct{}, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		user, ok := usersByID[id]
+		if !ok {
+			continue
+		}
+		users = append(users, user)
+		seen[id] = struct{}{}
+	}
+
+	return users, nil
+}
+
 func scanUserRow(row pgx.Row) (*models.User, error) {
 	var user models.User
 	var role sql.NullString

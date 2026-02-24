@@ -14,6 +14,7 @@ import (
 	"recommendation-system/internal/auth"
 	"recommendation-system/internal/config"
 	"recommendation-system/internal/database"
+	"recommendation-system/internal/friends"
 	"recommendation-system/internal/security"
 	"recommendation-system/internal/users"
 )
@@ -40,6 +41,9 @@ func main() {
 
 	// 3. Gin setup
 	r := gin.Default()
+	if err := r.SetTrustedProxies(nil); err != nil {
+		log.Fatalf("failed to set trusted proxies: %v", err)
+	}
 
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
@@ -53,6 +57,14 @@ func main() {
 	usersGroup.Use(auth.RequireAuth())
 	{
 		usersGroup.GET("/me", users.GetMeHandler)
+	}
+
+	friendsGroup := r.Group("/friends")
+	friendsGroup.Use(auth.RequireAuth())
+	{
+		friendsGroup.GET("", friends.GetFriendsHandler)
+		friendsGroup.POST("/requests", friends.SendFriendRequestHandler)
+		friendsGroup.POST("/requests/respond", friends.RespondToFriendRequestHandler)
 	}
 
 	r.GET("/ping", PingHandler)

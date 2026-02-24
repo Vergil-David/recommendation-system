@@ -17,7 +17,7 @@ const docTemplate = `{
     "paths": {
         "/auth/login": {
             "post": {
-                "description": "Перевіряє email/пароль та повертає JWT токен",
+                "description": "Перевіряє email/пароль та повертає JWT токен і профіль користувача.",
                 "consumes": [
                     "application/json"
                 ],
@@ -41,27 +41,33 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "Успішний вхід",
                         "schema": {
                             "$ref": "#/definitions/auth.AuthResponse"
                         }
                     },
                     "400": {
-                        "description": "Bad Request",
+                        "description": "Невірні дані запиту",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     },
                     "401": {
-                        "description": "Unauthorized",
+                        "description": "Невірні облікові дані",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/auth.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Користувач не активний",
+                        "schema": {
+                            "$ref": "#/definitions/auth.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Серверна помилка",
+                        "schema": {
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     }
                 }
@@ -69,7 +75,7 @@ const docTemplate = `{
         },
         "/auth/register": {
             "post": {
-                "description": "Створює новий акаунт користувача з email та паролем",
+                "description": "Створює новий акаунт користувача з email, username та паролем.\nПовертає JWT токен та профіль користувача.",
                 "consumes": [
                     "application/json"
                 ],
@@ -93,27 +99,265 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "201": {
-                        "description": "Created",
+                        "description": "Користувача створено",
                         "schema": {
                             "$ref": "#/definitions/auth.AuthResponse"
                         }
                     },
                     "400": {
-                        "description": "Bad Request",
+                        "description": "Невірні дані запиту або бізнес-правила",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/auth.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Email або username вже зайняті",
+                        "schema": {
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     },
                     "500": {
-                        "description": "Internal Server Error",
+                        "description": "Серверна помилка",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/auth.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/friends": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Повертає список користувачів зі статусом accepted для поточного користувача.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "Список друзів користувача",
+                "responses": {
+                    "200": {
+                        "description": "Список друзів",
+                        "schema": {
+                            "$ref": "#/definitions/friends.FriendsListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/friends/requests": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Створює новий запит у друзі зі статусом pending.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "Надіслати запит у друзі",
+                "parameters": [
+                    {
+                        "description": "Цільовий користувач",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/friends.SendFriendRequestRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Запит надіслано",
+                        "schema": {
+                            "$ref": "#/definitions/friends.SendFriendRequestResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Невірні дані або спроба додати себе",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Користувача не знайдено",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Запит уже існує",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/friends/requests/respond": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Дозволяє отримувачу запиту прийняти або відхилити pending-запит.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "Відповісти на запит у друзі",
+                "parameters": [
+                    {
+                        "description": "Користувач-відправник і дія",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/friends.RespondFriendRequestRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Новий статус запиту",
+                        "schema": {
+                            "$ref": "#/definitions/friends.FriendRequestStatusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Невірні дані або дія",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Запит не знайдено",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Запит не в pending статусі",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/ping": {
+            "get": {
+                "description": "Повертає \"pong\" якщо сервіс працює.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Перевірка доступності сервісу",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/main.PingResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/users/me": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Повертає профіль поточного авторизованого користувача.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Поточний профіль користувача",
+                "responses": {
+                    "200": {
+                        "description": "Профіль користувача",
+                        "schema": {
+                            "$ref": "#/definitions/users.MeResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Токен невалідний або користувача не знайдено",
+                        "schema": {
+                            "$ref": "#/definitions/users.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Користувач неактивний",
+                        "schema": {
+                            "$ref": "#/definitions/users.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/users.ErrorResponse"
                         }
                     }
                 }
@@ -123,16 +367,22 @@ const docTemplate = `{
     "definitions": {
         "auth.AuthResponse": {
             "type": "object",
-            "required": [
-                "token",
-                "user"
-            ],
             "properties": {
                 "token": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
                 },
                 "user": {
                     "$ref": "#/definitions/models.User"
+                }
+            }
+        },
+        "auth.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "invalid request"
                 }
             }
         },
@@ -145,6 +395,7 @@ const docTemplate = `{
             "properties": {
                 "email": {
                     "type": "string",
+                    "format": "email",
                     "example": "user@example.com"
                 },
                 "password": {
@@ -163,10 +414,12 @@ const docTemplate = `{
             "properties": {
                 "email": {
                     "type": "string",
+                    "format": "email",
                     "example": "user@example.com"
                 },
                 "password": {
                     "type": "string",
+                    "minLength": 6,
                     "example": "secret123"
                 },
                 "username": {
@@ -175,50 +428,159 @@ const docTemplate = `{
                 }
             }
         },
+        "friends.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "invalid request"
+                }
+            }
+        },
+        "friends.FriendRequestStatusResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "example": "accepted"
+                }
+            }
+        },
+        "friends.FriendsListResponse": {
+            "type": "object",
+            "properties": {
+                "friends": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.User"
+                    }
+                }
+            }
+        },
+        "friends.RespondFriendRequestRequest": {
+            "type": "object",
+            "required": [
+                "action",
+                "from_user_id"
+            ],
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "example": "accept"
+                },
+                "from_user_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                }
+            }
+        },
+        "friends.SendFriendRequestRequest": {
+            "type": "object",
+            "required": [
+                "to_user_id"
+            ],
+            "properties": {
+                "to_user_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                }
+            }
+        },
+        "friends.SendFriendRequestResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "example": "pending"
+                }
+            }
+        },
+        "main.PingResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "example": "pong"
+                }
+            }
+        },
         "models.User": {
             "type": "object",
             "properties": {
-                "id": {
-                    "type": "string",
-                    "format": "uuid"
-                },
-                "email": {
-                    "type": "string"
-                },
-                "username": {
-                    "type": "string"
-                },
-                "display_name": {
-                    "type": "string"
-                },
                 "avatar_url": {
-                    "type": "string"
+                    "type": "string",
+                    "example": "https://cdn.example.com/avatars/johndoe.png"
                 },
                 "bio": {
-                    "type": "string"
-                },
-                "role": {
-                    "type": "string"
-                },
-                "email_verified": {
-                    "type": "boolean"
-                },
-                "is_active": {
-                    "type": "boolean"
-                },
-                "last_login_at": {
                     "type": "string",
-                    "format": "date-time"
+                    "example": "Book lover and sci-fi fan."
                 },
                 "created_at": {
                     "type": "string",
                     "format": "date-time"
                 },
+                "display_name": {
+                    "type": "string",
+                    "example": "John Doe"
+                },
+                "email": {
+                    "type": "string",
+                    "format": "email",
+                    "example": "user@example.com"
+                },
+                "email_verified": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "id": {
+                    "type": "string",
+                    "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                },
+                "is_active": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "last_login_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "role": {
+                    "type": "string",
+                    "example": "user"
+                },
                 "updated_at": {
                     "type": "string",
                     "format": "date-time"
+                },
+                "username": {
+                    "type": "string",
+                    "example": "johndoe"
                 }
             }
+        },
+        "users.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "unauthorized"
+                }
+            }
+        },
+        "users.MeResponse": {
+            "type": "object",
+            "properties": {
+                "user": {
+                    "$ref": "#/definitions/models.User"
+                }
+            }
+        }
+    },
+    "securityDefinitions": {
+        "BearerAuth": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
         }
     }
 }`
@@ -227,10 +589,10 @@ const docTemplate = `{
 var SwaggerInfo = &swag.Spec{
 	Version:          "1.0",
 	Host:             "",
-	BasePath:         "",
-	Schemes:          []string{},
+	BasePath:         "/",
+	Schemes:          []string{"http"},
 	Title:            "Book Recommendation System API",
-	Description:      "",
+	Description:      "API для реєстрації, автентифікації та базових сервісів системи рекомендацій.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

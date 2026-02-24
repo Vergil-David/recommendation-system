@@ -29,6 +29,7 @@ type ErrorResponse struct {
 // @Success      200  {object}  MeResponse "Профіль користувача"
 // @Failure      401  {object}  ErrorResponse "Токен невалідний або користувача не знайдено"
 // @Failure      403  {object}  ErrorResponse "Користувач неактивний"
+// @Failure      500  {object}  ErrorResponse "Внутрішня помилка сервера"
 // @Router       /users/me [get]
 func GetMeHandler(c *gin.Context) {
 	userIDRaw, exists := c.Get(auth.CtxUserIDKey)
