@@ -15,6 +15,7 @@ import (
 	"recommendation-system/internal/config"
 	"recommendation-system/internal/database"
 	"recommendation-system/internal/friends"
+	"recommendation-system/internal/movies"
 	"recommendation-system/internal/security"
 	"recommendation-system/internal/users"
 )
@@ -67,6 +68,7 @@ func main() {
 		friendsGroup.POST("/requests/respond", friends.RespondToFriendRequestHandler)
 	}
 
+	r.GET("/movies", movies.GetMoviesHandler)
 	r.GET("/ping", PingHandler)
 
 	log.Printf("🚀 Server running on :%s", cfg.Server.Port)

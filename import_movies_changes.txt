@@ -1,0 +1,139 @@
+import_movies_changes.txt
+
+1. Які файли створені
+- cmd/import_movies/main.go
+- internal/importer/service.go
+- internal/movies/handlers.go
+- internal/movies/service.go
+- internal/repository/movie_import_repository.go
+- internal/tmdb/client.go
+- import_movies_changes.txt
+
+2. Які змінені
+- cmd/api/main.go
+- docs/docs.go
+- docs/swagger.json
+- docs/swagger.yaml
+- internal/config/config.go
+- internal/models/item.go
+- .env.example
+
+3. Що додано
+- Новий модуль імпорту фільмів з TMDb:
+  - TMDb HTTP client (discover movies + genres)
+  - Import service з бізнес-логікою імпорту
+  - Repository-функції для:
+    - перевірки дубля в items
+    - вставки фільму в items
+    - upsert-подібного створення genres без дублювання
+    - створення зв'язків item_genres без дублювання
+- Нова CLI команда:
+  - go run ./cmd/import_movies --pages 10
+- Новий HTTP endpoint списку фільмів:
+  - GET /movies?page=1&limit=20
+  - архітектура: handlers -> service -> repository
+  - виводить: id, title, description, release_year, image_url, total, page, limit
+- Нова конфігурація TMDb в Config:
+  - TMDB_API_KEY
+  - TMDB_BASE_URL
+  - TMDB_IMAGE_BASE_URL
+  - TMDB_HTTP_TIMEOUT
+
+4. Як працює імпорт
+- Команда читає конфіг, перевіряє TMDB_API_KEY, підключається до PostgreSQL.
+- Завантажує список жанрів з TMDb і синхронізує їх у таблицю genres.
+- По сторінках викликає discover/movie з фільтрами українського контенту.
+- Для кожного фільму:
+  - відкидає записи без poster_path
+  - відкидає записи без release_date
+  - формує release_year
+  - формує description (overview, або fallback на title)
+  - формує image_url як https://image.tmdb.org/t/p/w500 + poster_path
+  - формує metadata JSONB з полями source/tmdb_id/original_title/original_language/popularity/vote_average/vote_count/release_date
+  - вставляє в items
+  - створює зв'язки item_genres
+
+5. Як працює дедуплікація
+- Перед вставкою перевіряється існування запису в items:
+  - metadata->>'tmdb_id' = поточний TMDb ID
+  - або title + release_year для type='movie'
+- Якщо знайдено дубль, запис пропускається (лічильник duplicates збільшується).
+
+6. Як працюють жанри
+- Використовується endpoint /genre/movie/list.
+- Для кожного жанру:
+  - шукається існуючий запис genres.name
+  - якщо не існує, створюється новий рядок у genres
+- Під час імпорту фільму його genre_ids мапляться на локальні genre.id.
+- Зв'язки в item_genres вставляються через insert ... where not exists (без дублювання).
+
+7. Які TMDb endpoint-и використані
+- GET /discover/movie
+  Параметри:
+  - with_origin_country=UA
+  - with_original_language=uk
+  - include_adult=false
+  - sort_by=popularity.desc
+  - page=<n>
+- GET /genre/movie/list
+
+8. Як запускати імпорт
+- Переконатися, що заповнені env (мінімум DATABASE_URL, JWT_SECRET, TMDB_API_KEY).
+- Запуск:
+  - go run ./cmd/import_movies --pages 10
+- Якщо передати pages < 5, команда автоматично піднімає до 5.
+
+9. Які env потрібні
+- Обов'язкові для проєкту:
+  - DATABASE_URL
+  - JWT_SECRET
+- Обов'язковий для імпорту:
+  - TMDB_API_KEY
+- Опційні для імпорту:
+  - TMDB_BASE_URL (default: https://api.themoviedb.org/3)
+  - TMDB_IMAGE_BASE_URL (default: https://image.tmdb.org/t/p/w500)
+  - TMDB_HTTP_TIMEOUT (default: 15s)
+
+10. Які обмеження залишились
+- Embedding свідомо не реалізований (за вимогою).
+- Імпорт орієнтований на фільми (type='movie'), книги не охоплені.
+- CLI зупиняється при критичній помилці API/БД (щоб не приховувати зламаний стан).
+
+11. Наступні кроки
+- Додати окремий імпорт книг (аналогічний pipeline + metadata schema).
+- Додати генерацію embeddings для items (після імпорту).
+- Додати recommendation service (content + social hybrid) поверх items/friendships/user activity.
+
+12. Виправлення metadata (jsonb, SQLSTATE 22P02)
+- Що було не так:
+  - Для `items.metadata` передавався payload у форматі, який pgx інтерпретував некоректно для `jsonb`, через що PostgreSQL повертав:
+    - `ERROR: invalid input syntax for type json (SQLSTATE 22P02)`.
+- Що виправлено:
+  - У `internal/repository/movie_import_repository.go` metadata тепер формується як map і серіалізується через `encoding/json`:
+    - `metadataJSON, err := json.Marshal(input.Metadata)`
+  - Додано обробку помилки marshal.
+  - У SQL insert передається `json.RawMessage(metadataJSON)` без `fmt.Sprintf` і без ручного `string(...)`.
+  - Поле `metadata` вставляється в колонку `items.metadata` типу `jsonb`.
+- Нова логіка:
+  - service формує структуровану map metadata;
+  - repository відповідає за серіалізацію і безпечну передачу JSON в БД.
+- Результат перевірки:
+  - Імпорт успішно виконаний (`go run ./cmd/import_movies --pages 5`);
+  - `SQLSTATE 22P02` більше не виникає;
+  - `Inserted: 99`, `Movies received: 100`.
+
+13. Endpoint GET /movies
+- Роут підключено в `cmd/api/main.go`:
+  - `r.GET("/movies", movies.GetMoviesHandler)`
+- Query params:
+  - `page` (default 1)
+  - `limit` (default 20, max 50)
+- Логіка:
+  - service нормалізує page/limit, рахує offset;
+  - repository читає тільки `type='movie'`, `ORDER BY created_at DESC`, `LIMIT/OFFSET`;
+  - окремо повертається `total` через `COUNT(*)`.
+- Помилки:
+  - невалідний query -> 400
+  - помилка БД -> 500
+- Swagger:
+  - додано опис endpoint `GET /movies` і response-моделі.

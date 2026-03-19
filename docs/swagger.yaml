@@ -136,6 +136,38 @@ definitions:
         example: johndoe
         type: string
     type: object
+  movies.ErrorResponse:
+    properties:
+      error:
+        example: invalid query parameters
+        type: string
+    type: object
+  movies.GetMoviesResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/movies.MovieItemResponse'
+        type: array
+      limit:
+        type: integer
+      page:
+        type: integer
+      total:
+        type: integer
+    type: object
+  movies.MovieItemResponse:
+    properties:
+      description:
+        type: string
+      id:
+        type: integer
+      image_url:
+        type: string
+      release_year:
+        type: integer
+      title:
+        type: string
+    type: object
   users.ErrorResponse:
     properties:
       error:
@@ -339,6 +371,36 @@ paths:
       summary: Відповісти на запит у друзі
       tags:
       - friends
+  /movies:
+    get:
+      description: Повертає список фільмів з пагінацією.
+      parameters:
+      - description: Номер сторінки (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Ліміт на сторінку (default 20, max 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/movies.GetMoviesResponse'
+        "400":
+          description: Некоректні query-параметри
+          schema:
+            $ref: '#/definitions/movies.ErrorResponse'
+        "500":
+          description: Помилка бази даних
+          schema:
+            $ref: '#/definitions/movies.ErrorResponse'
+      summary: Список фільмів
+      tags:
+      - movies
   /ping:
     get:
       description: Повертає "pong" якщо сервіс працює.

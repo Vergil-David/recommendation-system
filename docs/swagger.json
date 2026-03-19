@@ -296,6 +296,52 @@
                 }
             }
         },
+        "/movies": {
+            "get": {
+                "description": "Повертає список фільмів з пагінацією.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "movies"
+                ],
+                "summary": "Список фільмів",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Номер сторінки (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Ліміт на сторінку (default 20, max 50)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/movies.GetMoviesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Некоректні query-параметри",
+                        "schema": {
+                            "$ref": "#/definitions/movies.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Помилка бази даних",
+                        "schema": {
+                            "$ref": "#/definitions/movies.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/ping": {
             "get": {
                 "description": "Повертає \"pong\" якщо сервіс працює.",
@@ -551,6 +597,55 @@
                 "username": {
                     "type": "string",
                     "example": "johndoe"
+                }
+            }
+        },
+        "movies.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "invalid query parameters"
+                }
+            }
+        },
+        "movies.GetMoviesResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/movies.MovieItemResponse"
+                    }
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "movies.MovieItemResponse": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "image_url": {
+                    "type": "string"
+                },
+                "release_year": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
                 }
             }
         },

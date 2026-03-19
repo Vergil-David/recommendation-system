@@ -12,6 +12,7 @@ type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	JWT      JWTConfig
+	TMDB     TMDBConfig
 }
 
 type ServerConfig struct {
@@ -26,6 +27,13 @@ type DatabaseConfig struct {
 type JWTConfig struct {
 	Secret    string
 	ExpiresIn time.Duration
+}
+
+type TMDBConfig struct {
+	APIKey       string
+	BaseURL      string
+	ImageBaseURL string
+	HTTPTimeout  time.Duration
 }
 
 func Load() *Config {
@@ -44,6 +52,12 @@ func Load() *Config {
 		JWT: JWTConfig{
 			Secret:    mustEnv("JWT_SECRET"),
 			ExpiresIn: mustDuration("JWT_EXPIRES_IN", "1h"),
+		},
+		TMDB: TMDBConfig{
+			APIKey:       getEnv("TMDB_API_KEY", ""),
+			BaseURL:      getEnv("TMDB_BASE_URL", "https://api.themoviedb.org/3"),
+			ImageBaseURL: getEnv("TMDB_IMAGE_BASE_URL", "https://image.tmdb.org/t/p/w500"),
+			HTTPTimeout:  mustDuration("TMDB_HTTP_TIMEOUT", "15s"),
 		},
 	}
 
