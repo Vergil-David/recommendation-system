@@ -137,3 +137,35 @@ import_movies_changes.txt
   - помилка БД -> 500
 - Swagger:
   - додано опис endpoint `GET /movies` і response-моделі.
+
+14. CORS middleware (secure frontend access)
+- Додано новий файл:
+  - `internal/middleware/cors.go`
+- Додано функцію:
+  - `SetupCORS(handler http.Handler, frontendURL string) http.Handler`
+- Використана бібліотека:
+  - `github.com/rs/cors`
+- Налаштування безпеки:
+  - `AllowedOrigins`: тільки `FRONTEND_URL` (default `http://localhost:5173`)
+  - `AllowedMethods`: GET, POST, PUT, DELETE, OPTIONS
+  - `AllowedHeaders`: Content-Type, Authorization
+  - `AllowCredentials`: true
+  - wildcard `*` не використовується
+  - якщо origin не дозволений, CORS headers не додаються
+- Preflight:
+  - `OPTIONS` повертає `200 OK`
+- Логування:
+  - логуються `origin`, `method`, `path` для debug.
+
+15. Main server update for CORS wrapper
+- У `cmd/api/main.go` Gin router обгорнутий у CORS handler:
+  - `handler := middleware.SetupCORS(r, cfg.Server.FrontendURL)`
+  - `http.Server{Handler: handler}`
+- Бізнес-логіка handler-ів (`auth/friends/users/movies`) не змінювалась.
+
+16. Env updates
+- Додано підтримку env:
+  - `FRONTEND_URL=http://localhost:5173`
+- Змінено:
+  - `.env.example`
+  - `internal/config/config.go` (ServerConfig.FrontendURL)

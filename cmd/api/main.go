@@ -15,6 +15,7 @@ import (
 	"recommendation-system/internal/config"
 	"recommendation-system/internal/database"
 	"recommendation-system/internal/friends"
+	"recommendation-system/internal/middleware"
 	"recommendation-system/internal/movies"
 	"recommendation-system/internal/security"
 	"recommendation-system/internal/users"
@@ -71,8 +72,16 @@ func main() {
 	r.GET("/movies", movies.GetMoviesHandler)
 	r.GET("/ping", PingHandler)
 
+	handler := middleware.SetupCORS(r, cfg.Server.FrontendURL)
+	server := &http.Server{
+		Addr:    ":" + cfg.Server.Port,
+		Handler: handler,
+	}
+
 	log.Printf("🚀 Server running on :%s", cfg.Server.Port)
-	r.Run(":" + cfg.Server.Port)
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("server failed: %v", err)
+	}
 }
 
 // PingHandler godoc

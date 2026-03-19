@@ -16,7 +16,8 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port string
+	Port        string
+	FrontendURL string
 }
 
 type DatabaseConfig struct {
@@ -43,7 +44,8 @@ func Load() *Config {
 
 	cfg := &Config{
 		Server: ServerConfig{
-			Port: getEnv("SERVER_PORT", "8080"),
+			Port:        getEnv("SERVER_PORT", "8080"),
+			FrontendURL: getEnv("FRONTEND_URL", "http://localhost:5173"),
 		},
 		Database: DatabaseConfig{
 			URL:           mustEnv("DATABASE_URL"),
