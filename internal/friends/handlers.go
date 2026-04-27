@@ -33,6 +33,14 @@ type FriendsListResponse struct {
 	Friends []models.User `json:"friends"`
 }
 
+type IncomingFriendRequestsResponse struct {
+	Requests []models.IncomingFriendRequest `json:"requests"`
+}
+
+type OutgoingFriendRequestsResponse struct {
+	Requests []models.OutgoingFriendRequest `json:"requests"`
+}
+
 type ErrorResponse struct {
 	Error string `json:"error" example:"invalid request"`
 }
@@ -182,4 +190,68 @@ func GetFriendsHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, FriendsListResponse{Friends: friends})
+}
+
+// ListIncomingFriendRequestsHandler godoc
+// @Summary      Вхідні запити у друзі
+// @Description  Повертає pending-запити, які поточний користувач може прийняти або відхилити.
+// @Tags         friends
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  IncomingFriendRequestsResponse "Список вхідних запитів"
+// @Failure      401  {object}  ErrorResponse "Неавторизовано"
+// @Failure      500  {object}  ErrorResponse "Внутрішня помилка сервера"
+// @Router       /friends/requests/incoming [get]
+func ListIncomingFriendRequestsHandler(c *gin.Context) {
+	userIDRaw, exists := c.Get(auth.CtxUserIDKey)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	userID, ok := userIDRaw.(uuid.UUID)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token subject"})
+		return
+	}
+
+	requests, err := ListIncomingFriendRequests(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, IncomingFriendRequestsResponse{Requests: requests})
+}
+
+// ListOutgoingFriendRequestsHandler godoc
+// @Summary      Вихідні запити у друзі
+// @Description  Повертає pending-запити, які поточний користувач уже відправив.
+// @Tags         friends
+// @Produce      json
+// @Security     BearerAuth
+// @Success      200  {object}  OutgoingFriendRequestsResponse "Список вихідних запитів"
+// @Failure      401  {object}  ErrorResponse "Неавторизовано"
+// @Failure      500  {object}  ErrorResponse "Внутрішня помилка сервера"
+// @Router       /friends/requests/outgoing [get]
+func ListOutgoingFriendRequestsHandler(c *gin.Context) {
+	userIDRaw, exists := c.Get(auth.CtxUserIDKey)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	userID, ok := userIDRaw.(uuid.UUID)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token subject"})
+		return
+	}
+
+	requests, err := ListOutgoingFriendRequests(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, OutgoingFriendRequestsResponse{Requests: requests})
 }

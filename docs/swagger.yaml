@@ -64,6 +64,20 @@ definitions:
           $ref: '#/definitions/models.User'
         type: array
     type: object
+  friends.IncomingFriendRequestsResponse:
+    properties:
+      requests:
+        items:
+          $ref: '#/definitions/models.IncomingFriendRequest'
+        type: array
+    type: object
+  friends.OutgoingFriendRequestsResponse:
+    properties:
+      requests:
+        items:
+          $ref: '#/definitions/models.OutgoingFriendRequest'
+        type: array
+    type: object
   friends.RespondFriendRequestRequest:
     properties:
       action:
@@ -94,6 +108,47 @@ definitions:
     properties:
       message:
         example: pong
+        type: string
+    type: object
+  models.IncomingFriendRequest:
+    properties:
+      created_at:
+        format: date-time
+        type: string
+      from_user:
+        $ref: '#/definitions/models.PublicUser'
+      status:
+        example: pending
+        type: string
+    type: object
+  models.OutgoingFriendRequest:
+    properties:
+      created_at:
+        format: date-time
+        type: string
+      status:
+        example: pending
+        type: string
+      to_user:
+        $ref: '#/definitions/models.PublicUser'
+    type: object
+  models.PublicUser:
+    properties:
+      avatar_url:
+        example: https://cdn.example.com/avatars/johndoe.png
+        type: string
+      display_name:
+        example: John Doe
+        type: string
+      email:
+        example: user@example.com
+        format: email
+        type: string
+      id:
+        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        type: string
+      username:
+        example: johndoe
         type: string
     type: object
   models.User:
@@ -131,6 +186,28 @@ definitions:
         type: string
       updated_at:
         format: date-time
+        type: string
+      username:
+        example: johndoe
+        type: string
+    type: object
+  models.UserSearchResult:
+    properties:
+      avatar_url:
+        example: https://cdn.example.com/avatars/johndoe.png
+        type: string
+      display_name:
+        example: John Doe
+        type: string
+      email:
+        example: user@example.com
+        format: email
+        type: string
+      id:
+        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        type: string
+      relation_status:
+        example: none
         type: string
       username:
         example: johndoe
@@ -178,6 +255,13 @@ definitions:
     properties:
       user:
         $ref: '#/definitions/models.User'
+    type: object
+  users.SearchUsersResponse:
+    properties:
+      users:
+        items:
+          $ref: '#/definitions/models.UserSearchResult'
+        type: array
     type: object
 info:
   contact: {}
@@ -327,6 +411,53 @@ paths:
       summary: Надіслати запит у друзі
       tags:
       - friends
+  /friends/requests/incoming:
+    get:
+      description: Повертає pending-запити, які поточний користувач може прийняти
+        або відхилити.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Список вхідних запитів
+          schema:
+            $ref: '#/definitions/friends.IncomingFriendRequestsResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Вхідні запити у друзі
+      tags:
+      - friends
+  /friends/requests/outgoing:
+    get:
+      description: Повертає pending-запити, які поточний користувач уже відправив.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Список вихідних запитів
+          schema:
+            $ref: '#/definitions/friends.OutgoingFriendRequestsResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Вихідні запити у друзі
+      tags:
+      - friends
   /friends/requests/respond:
     post:
       consumes:
@@ -439,6 +570,45 @@ paths:
       security:
       - BearerAuth: []
       summary: Поточний профіль користувача
+      tags:
+      - users
+  /users/search:
+    get:
+      description: Шукає користувачів по username, display_name або email і повертає
+        relation_status відносно поточного користувача.
+      parameters:
+      - description: Пошуковий запит
+        in: query
+        name: q
+        required: true
+        type: string
+      - default: 20
+        description: Максимальна кількість результатів
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Список знайдених користувачів
+          schema:
+            $ref: '#/definitions/users.SearchUsersResponse'
+        "400":
+          description: Невірний або порожній запит
+          schema:
+            $ref: '#/definitions/users.ErrorResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/users.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/users.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Пошук користувачів
       tags:
       - users
 schemes:

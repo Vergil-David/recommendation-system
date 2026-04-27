@@ -30,16 +30,24 @@ func SendFriendRequest(ctx context.Context, fromUserID, toUserID uuid.UUID) erro
 		return err
 	}
 
-	status, found, err := repository.GetFriendshipStatus(ctx, fromUserID, toUserID)
+	outgoingStatus, outgoingFound, err := repository.GetFriendshipStatus(ctx, fromUserID, toUserID)
+	if err != nil {
+		return err
+	}
+	incomingStatus, incomingFound, err := repository.GetFriendshipStatus(ctx, toUserID, fromUserID)
 	if err != nil {
 		return err
 	}
 
-	if found {
-		if status == "pending" || status == "accepted" {
-			return repository.ErrFriendRequestAlreadyExists
-		}
-		if status == "rejected" {
+	if (outgoingFound && outgoingStatus == "accepted") || (incomingFound && incomingStatus == "accepted") {
+		return repository.ErrFriendRequestAlreadyExists
+	}
+	if (outgoingFound && outgoingStatus == "pending") || (incomingFound && incomingStatus == "pending") {
+		return repository.ErrFriendRequestAlreadyExists
+	}
+
+	if outgoingFound {
+		if outgoingStatus == "rejected" {
 			if err := repository.UpdateFriendRequestStatus(ctx, fromUserID, toUserID, "pending"); err != nil {
 				return err
 			}
@@ -97,4 +105,12 @@ func GetFriends(ctx context.Context, userID uuid.UUID) ([]models.User, error) {
 	}
 
 	return friends, nil
+}
+
+func ListIncomingFriendRequests(ctx context.Context, userID uuid.UUID) ([]models.IncomingFriendRequest, error) {
+	return repository.ListIncomingFriendRequests(ctx, userID)
+}
+
+func ListOutgoingFriendRequests(ctx context.Context, userID uuid.UUID) ([]models.OutgoingFriendRequest, error) {
+	return repository.ListOutgoingFriendRequests(ctx, userID)
 }

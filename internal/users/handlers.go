@@ -3,6 +3,7 @@ package users
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -14,6 +15,10 @@ import (
 
 type MeResponse struct {
 	User models.User `json:"user"`
+}
+
+type SearchUsersResponse struct {
+	Users []models.UserSearchResult `json:"users"`
 }
 
 type ErrorResponse struct {
@@ -58,4 +63,54 @@ func GetMeHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, MeResponse{User: *user})
+}
+
+// SearchUsersHandler godoc
+// @Summary      Пошук користувачів
+// @Description  Шукає користувачів по username, display_name або email і повертає relation_status відносно поточного користувача.
+// @Tags         users
+// @Produce      json
+// @Security     BearerAuth
+// @Param        q query string true "Пошуковий запит"
+// @Param        limit query int false "Максимальна кількість результатів" default(20)
+// @Success      200  {object}  SearchUsersResponse "Список знайдених користувачів"
+// @Failure      400  {object}  ErrorResponse "Невірний або порожній запит"
+// @Failure      401  {object}  ErrorResponse "Неавторизовано"
+// @Failure      500  {object}  ErrorResponse "Внутрішня помилка сервера"
+// @Router       /users/search [get]
+func SearchUsersHandler(c *gin.Context) {
+	userIDRaw, exists := c.Get(auth.CtxUserIDKey)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	userID, ok := userIDRaw.(uuid.UUID)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token subject"})
+		return
+	}
+
+	limit := 0
+	if rawLimit := c.Query("limit"); rawLimit != "" {
+		parsedLimit, err := strconv.Atoi(rawLimit)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid limit"})
+			return
+		}
+		limit = parsedLimit
+	}
+
+	foundUsers, err := SearchUsers(c.Request.Context(), userID, c.Query("q"), limit)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrSearchQueryRequired):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, SearchUsersResponse{Users: foundUsers})
 }

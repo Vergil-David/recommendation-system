@@ -8,6 +8,8 @@
 - реєстрацію користувача;
 - логін користувача;
 - видачу JWT токена;
+- профіль поточного користувача і пошук користувачів для Friends page;
+- production-ready базову friends-систему: список друзів, incoming/outgoing requests, accept/reject;
 - підключення до PostgreSQL (через pgx pool);
 - Swagger-документацію;
 - заготовку під рекомендації на основі векторної схожості (pgvector).
@@ -34,8 +36,8 @@ internal/
     middleware.go               -> JWT middleware (Bearer, Parse, userID/role у context)
     service.go                  -> бізнес-логіка auth
   friends/
-    handlers.go                 -> HTTP-обробники GET /friends, POST /friends/requests, POST /friends/requests/respond
-    service.go                  -> бізнес-логіка friend requests (list/send/respond)
+    handlers.go                 -> HTTP-обробники GET /friends, friend requests incoming/outgoing/send/respond
+    service.go                  -> бізнес-логіка friend requests (list/search-support/send/respond)
   config/
     config.go                   -> читання env-конфігурації
   database/
@@ -45,20 +47,23 @@ internal/
       0001_upgrade_users.down.sql -> best-effort rollback users upgrade
       0002_friendships_constraints.up.sql   -> обмеження статусів/унікальності/індекси friendships
       0002_friendships_constraints.down.sql -> best-effort rollback для constraints/indexes friendships
+      0003_friend_requests_lists.up.sql     -> timestamps/indexes для friends lists + user search indexes
+      0003_friend_requests_lists.down.sql   -> best-effort rollback нових індексів/trigger
   models/
     user.go                     -> модель User
+    friendship.go               -> DTO для публічних user search/friend request responses
     item.go                     -> модель Item (для рекомендацій)
   repository/
     user_repository.go          -> SQL-операції з users
     item_repo.go                -> SQL-пошук схожих items за embedding
-    friendships_repository.go   -> SQL-операції для friend requests + accepted mirror row
+    friendships_repository.go   -> SQL-операції для friend requests, incoming/outgoing lists, search relation_status
   security/
     claims.go                   -> JWT claims
     jwt.go                      -> генерація/парсинг JWT
     password.go                 -> hash/verify паролів через bcrypt
   users/
-    handlers.go                 -> HTTP-обробник GET /users/me
-    service.go                  -> бізнес-логіка отримання профілю current user
+    handlers.go                 -> HTTP-обробники GET /users/me і GET /users/search
+    service.go                  -> бізнес-логіка профілю current user і user search validation
 
 Файли кореня:
 - go.mod, go.sum               -> залежності і версія Go
@@ -96,8 +101,11 @@ internal/
    - POST /auth/register
    - POST /auth/login
    - GET /users/me (protected)
+   - GET /users/search (protected)
    - GET /friends (protected)
    - POST /friends/requests (protected)
+   - GET /friends/requests/incoming (protected)
+   - GET /friends/requests/outgoing (protected)
    - POST /friends/requests/respond (protected)
    - GET /ping
 7. r.Run(":<port>") запускає HTTP-сервер.
@@ -172,9 +180,10 @@ PostgreSQL.
 1. Handler перевіряє JWT-контекст, читає `to_user_id` з JSON і парсить UUID.
 2. Service блокує self-request (from == to).
 3. Service перевіряє, що target user існує.
-4. Service перевіряє наявний запис у `friendships`:
-   - `pending` або `accepted` -> conflict;
-   - `rejected` -> перевід у `pending` через update;
+4. Service перевіряє наявні записи в обох напрямках `from->to` і `to->from`:
+   - будь-який `accepted` -> conflict, бо користувачі вже друзі;
+   - будь-який `pending` -> conflict, щоб не створювати дублікати або cross-pending заявки;
+   - власний попередній `rejected` -> перевід у `pending` через update;
    - відсутній запис -> insert нового `pending`.
 5. Handler повертає 201 + `{ "status": "pending" }`.
 
@@ -197,7 +206,7 @@ PostgreSQL.
 5. Service перевіряє, що поточний статус запиту саме `pending`.
 6. Якщо `accept`:
    - оновлює поточний рядок на `accepted`;
-   - гарантує mirror-рядок `receiver->requester` зі статусом `accepted` через upsert (`ON CONFLICT DO NOTHING`).
+   - гарантує mirror-рядок `receiver->requester` зі статусом `accepted` через upsert (`ON CONFLICT DO UPDATE`), щоб старий reverse `rejected` або legacy reverse `pending` не ламав `GET /friends`.
 7. Якщо `reject`:
    - оновлює статус на `rejected`.
 8. Handler повертає 200 + `{ "status": "accepted" }` або `{ "status": "rejected" }`.
@@ -222,6 +231,53 @@ PostgreSQL.
 
 Примітка:
 - Простий запит на список друзів працює завдяки mirror-рядку `accepted`, який створюється під час `accept`.
+
+
+6.4) Як працює пошук користувачів для додавання друзів
+------------------------------------------------------
+Ланцюг:
+HTTP -> internal/users/handlers.go:SearchUsersHandler ->
+internal/users/service.go:SearchUsers ->
+internal/repository/friendships_repository.go:SearchUsersWithFriendshipStatus ->
+PostgreSQL.
+
+Маршрут: `GET /users/search?q=<query>&limit=<n>` захищений middleware `auth.RequireAuth()`.
+
+Поведінка:
+1. Handler дістає current user id з JWT context і читає query params `q` та `limit`.
+2. Service trim-ить `q`, не дозволяє порожній search query, ставить default limit 20 і max limit 50.
+3. Repository шукає по `username`, `display_name`, `email` case-insensitive.
+4. Поточний користувач не повертається.
+5. У відповіді немає `password_hash`; повертаються тільки поля `id`, `email`, `username`, `display_name`, `avatar_url`, `relation_status`.
+6. `relation_status` рахується відносно current user:
+   - `friends`, якщо є accepted-зв'язок у будь-якому напрямку;
+   - `pending_sent`, якщо current user уже відправив pending request;
+   - `pending_received`, якщо current user має pending request від знайденого user;
+   - `none`, якщо активного зв'язку немає або попередній request був rejected.
+
+Приклад:
+`GET /users/search?q=ann&limit=20` -> `{ "users": [{ "id": "...", "email": "...", "username": "anna", "relation_status": "none" }] }`.
+
+
+6.5) Як працюють incoming/outgoing friend requests
+---------------------------------------------------
+Incoming:
+HTTP -> internal/friends/handlers.go:ListIncomingFriendRequestsHandler ->
+internal/friends/service.go:ListIncomingFriendRequests ->
+internal/repository/friendships_repository.go:ListIncomingFriendRequests ->
+PostgreSQL.
+
+`GET /friends/requests/incoming` повертає pending-заявки, де `friendships.friend_id = currentUserID`.
+Формат: `{ "requests": [{ "from_user": { "id": "...", "username": "...", "display_name": "...", "avatar_url": "..." }, "status": "pending", "created_at": "..." }] }`.
+
+Outgoing:
+HTTP -> internal/friends/handlers.go:ListOutgoingFriendRequestsHandler ->
+internal/friends/service.go:ListOutgoingFriendRequests ->
+internal/repository/friendships_repository.go:ListOutgoingFriendRequests ->
+PostgreSQL.
+
+`GET /friends/requests/outgoing` повертає pending-заявки, де `friendships.user_id = currentUserID`.
+Формат: `{ "requests": [{ "to_user": { "id": "...", "username": "...", "display_name": "...", "avatar_url": "..." }, "status": "pending", "created_at": "..." }] }`.
 
 
 7) Детальний розбір кожного файлу
@@ -296,6 +352,28 @@ PostgreSQL.
   - конвертує `citext` назад у `text`;
   - видаляє `user_role` якщо тип існує.
 
+7.5.1 internal/database/migrations/0002_friendships_constraints.*
+- Додає constraint-и для `friendships`:
+  - `status IN ('pending', 'accepted', 'rejected')`;
+  - `user_id <> friend_id`;
+  - unique `(user_id, friend_id)`.
+- Додає індекси:
+  - `(friend_id, status)`;
+  - `(user_id, status)`.
+
+7.5.2 internal/database/migrations/0003_friend_requests_lists.*
+- Додає `created_at` і `updated_at` у `friendships`, якщо їх бракує; backfill-ить NULL старих рядків і ставить default/not-null.
+- Додає trigger `friendships_set_updated_at` для автоматичного оновлення `updated_at`.
+- Гарантує індекси для friends page:
+  - `friendships(user_id, status)`;
+  - `friendships(friend_id, status)`;
+  - `friendships(user_id, friend_id)`.
+- Додає `pg_trgm` і GIN trigram indexes для case-insensitive substring search по:
+  - `users.username`;
+  - `users.email`;
+  - `users.display_name`, якщо колонка існує.
+- Down-міграція прибирає нові індекси/trigger/function і не видаляє дані.
+
 7.6 internal/models/user.go
 - DTO/доменна модель користувача.
 - Особливості:
@@ -304,6 +382,19 @@ PostgreSQL.
   - опціональні поля через pointers (*string, *time.Time), щоб відрізняти null від порожнього.
 - Зв'язки:
   - використовується auth/service, auth/handlers, repository.
+
+7.6.1 internal/models/friendship.go
+- DTO для user search і friend request списків.
+- Основні типи:
+  - `PublicUser`: публічні поля user для вкладених `from_user`/`to_user`.
+  - `UserSearchResult`: user + `relation_status`.
+  - `IncomingFriendRequest`, `OutgoingFriendRequest`: response rows для pending-заявок.
+- Константи relation status:
+  - `none`
+  - `pending_sent`
+  - `pending_received`
+  - `friends`
+- `password_hash` тут відсутній структурно, тому нові endpoints не можуть випадково його серіалізувати.
 
 7.7 internal/models/item.go
 - Модель елемента для рекомендацій.
@@ -321,6 +412,19 @@ PostgreSQL.
 - Дуже важлива ідея:
   - `GetUserByEmail` не "жорстко" зав'язаний на всі колонки.
   - Якщо schema старіша і немає частини колонок, код все одно працюватиме.
+
+7.8.1 internal/repository/friendships_repository.go
+- SQL-шар для friendship workflow.
+- Основні функції:
+  - `CreateFriendRequest(ctx, fromUserID, toUserID)`: insert pending request.
+  - `GetFriendshipStatus(ctx, fromUserID, toUserID)`: читає напрямлений статус.
+  - `UpdateFriendRequestStatus(ctx, fromUserID, toUserID, status)`: оновлює статус request.
+  - `EnsureAcceptedMirror(ctx, requesterID, receiverID)`: створює або оновлює mirror accepted row.
+  - `ListAcceptedFriendIDs(ctx, userID)`: основа для `GET /friends`.
+  - `SearchUsersWithFriendshipStatus(ctx, currentUserID, query, limit)`: пошук users + relation_status.
+  - `ListIncomingFriendRequests(ctx, userID)`: pending-заявки на current user.
+  - `ListOutgoingFriendRequests(ctx, userID)`: pending-заявки, відправлені current user.
+- SQL для search адаптується до наявності `display_name`, `avatar_url`, `is_active` через schema introspection.
 
 7.9 internal/repository/item_repo.go
 - Функція FindSimilar(userVector []float32).
@@ -427,6 +531,7 @@ PostgreSQL.
 Напрямки залежностей:
 - `cmd/api` -> `internal/config`, `internal/database`, `internal/auth`, `internal/friends`, `internal/security`, `docs`.
 - `internal/auth` -> `internal/repository`, `internal/security`, `internal/models`.
+- `internal/users` -> `internal/repository`, `internal/models`.
 - `internal/friends` -> `internal/repository`, `internal/auth`.
 - `internal/repository` -> `internal/database`, `internal/models`.
 - `internal/database` -> зовнішній pgx/pgxpool.
@@ -468,17 +573,32 @@ PostgreSQL.
 - POST /auth/register
 - POST /auth/login
 - GET /users/me (Bearer token required)
+- GET /users/search?q=<query>&limit=<n> (Bearer token required)
 - GET /friends (Bearer token required)
 - POST /friends/requests (Bearer token required)
+- GET /friends/requests/incoming (Bearer token required)
+- GET /friends/requests/outgoing (Bearer token required)
 - POST /friends/requests/respond (Bearer token required)
 - GET /swagger/*any
 
 Приклади high-level:
 - register: body {email, username, password} -> 201 + token + user
 - login: body {email, password} -> 200 + token + user
+- search users: GET /users/search?q=ann -> 200 + {users: [{..., relation_status}]}
 - list friends: GET /friends -> 200 + {friends: [...]}
 - send friend request: body {to_user_id} -> 201 + {status: "pending"}
+- incoming requests: GET /friends/requests/incoming -> 200 + {requests: [{from_user, status, created_at}]}
+- outgoing requests: GET /friends/requests/outgoing -> 200 + {requests: [{to_user, status, created_at}]}
 - respond to friend request: body {from_user_id, action} -> 200 + {status: "accepted"|"rejected"}
+
+Frontend Friends page workflow:
+1. Для search input викликати `GET /users/search?q=<text>&limit=20`.
+2. Якщо `relation_status = "none"`, показувати кнопку Add і викликати `POST /friends/requests`.
+3. Якщо `relation_status = "pending_sent"`, показувати pending state без повторного POST.
+4. Якщо `relation_status = "pending_received"`, можна показати Accept/Reject і викликати `POST /friends/requests/respond`.
+5. Для вкладки Incoming використовувати `GET /friends/requests/incoming`.
+6. Для вкладки Outgoing використовувати `GET /friends/requests/outgoing`.
+7. Для списку друзів використовувати існуючий `GET /friends`.
 
 
 11) Що вже зроблено для рекомендацій, а чого бракує
@@ -501,8 +621,8 @@ PostgreSQL.
 - Migration runner додано (`cmd/migrate`), викликається вручну і не запускається автоматично разом з API.
 - Можлива невідповідність swagger-файлів реальному коду.
 - Наявність секретів у робочих env-файлах вимагає обережності з комітами.
-- Модель `friendships` зараз напрямлена: `user_id` = requester, `friend_id` = addressee; для fully mutual friendship та accept/reject workflow може знадобитися додаткова логіка.
-- При `accept` зберігається mirror-рядок у зворотному напрямку (`accepted`), тому логіка консистентності двох напрямків потребує уваги при майбутніх змінах (remove/block/resync).
+- Модель `friendships` напрямлена: `user_id` = requester/current owner, `friend_id` = addressee/friend. Для friendship після accept підтримується mirror-row `accepted`.
+- Для майбутніх remove/block/resync операцій треба оновлювати обидва напрямки accepted-зв'язку консистентно.
 
 
 13) Короткий підсумок для новачка в Go
@@ -514,7 +634,7 @@ PostgreSQL.
 4. `internal/auth/service.go` -> де бізнес-правила.
 5. `internal/repository/user_repository.go` -> як робиться SQL.
 6. `internal/security/*` -> пароль і JWT.
-7. `cmd/migrate/main.go` та `internal/database/migrations/0001_upgrade_users.*.sql`, `internal/database/migrations/0002_friendships_constraints.*.sql` -> як оновлюється реальна схема БД.
+7. `cmd/migrate/main.go` та `internal/database/migrations/*.sql` -> як оновлюється реальна схема БД.
 
 Після цього ти вже зможеш додавати нові фічі: новий handler -> service -> repository -> migration -> swagger.
 
@@ -530,7 +650,7 @@ PostgreSQL.
 - `docs/swagger.yaml`
 
 Мінімальна перевірка після регенерації:
-1. У swagger є нові маршрути (зокрема `POST /friends/requests`, `POST /friends/requests/respond`, `GET /users/me`).
+1. У swagger є нові маршрути (зокрема `GET /users/search`, `GET /friends/requests/incoming`, `GET /friends/requests/outgoing`, `POST /friends/requests`, `POST /friends/requests/respond`, `GET /users/me`).
 2. На protected-роутах є `BearerAuth`.
 3. Модель `models.User` не містить `PasswordHash`.
 4. Немає дублікатів моделей користувача у definitions.

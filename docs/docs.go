@@ -231,6 +231,80 @@ const docTemplate = `{
                 }
             }
         },
+        "/friends/requests/incoming": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Повертає pending-запити, які поточний користувач може прийняти або відхилити.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "Вхідні запити у друзі",
+                "responses": {
+                    "200": {
+                        "description": "Список вхідних запитів",
+                        "schema": {
+                            "$ref": "#/definitions/friends.IncomingFriendRequestsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/friends/requests/outgoing": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Повертає pending-запити, які поточний користувач уже відправив.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "Вихідні запити у друзі",
+                "responses": {
+                    "200": {
+                        "description": "Список вихідних запитів",
+                        "schema": {
+                            "$ref": "#/definitions/friends.OutgoingFriendRequestsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/friends/requests/respond": {
             "post": {
                 "security": [
@@ -408,6 +482,65 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/users/search": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Шукає користувачів по username, display_name або email і повертає relation_status відносно поточного користувача.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Пошук користувачів",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Пошуковий запит",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Максимальна кількість результатів",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Список знайдених користувачів",
+                        "schema": {
+                            "$ref": "#/definitions/users.SearchUsersResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Невірний або порожній запит",
+                        "schema": {
+                            "$ref": "#/definitions/users.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/users.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/users.ErrorResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -503,6 +636,28 @@ const docTemplate = `{
                 }
             }
         },
+        "friends.IncomingFriendRequestsResponse": {
+            "type": "object",
+            "properties": {
+                "requests": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.IncomingFriendRequest"
+                    }
+                }
+            }
+        },
+        "friends.OutgoingFriendRequestsResponse": {
+            "type": "object",
+            "properties": {
+                "requests": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.OutgoingFriendRequest"
+                    }
+                }
+            }
+        },
         "friends.RespondFriendRequestRequest": {
             "type": "object",
             "required": [
@@ -547,6 +702,64 @@ const docTemplate = `{
                 "message": {
                     "type": "string",
                     "example": "pong"
+                }
+            }
+        },
+        "models.IncomingFriendRequest": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "from_user": {
+                    "$ref": "#/definitions/models.PublicUser"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "pending"
+                }
+            }
+        },
+        "models.OutgoingFriendRequest": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "pending"
+                },
+                "to_user": {
+                    "$ref": "#/definitions/models.PublicUser"
+                }
+            }
+        },
+        "models.PublicUser": {
+            "type": "object",
+            "properties": {
+                "avatar_url": {
+                    "type": "string",
+                    "example": "https://cdn.example.com/avatars/johndoe.png"
+                },
+                "display_name": {
+                    "type": "string",
+                    "example": "John Doe"
+                },
+                "email": {
+                    "type": "string",
+                    "format": "email",
+                    "example": "user@example.com"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                },
+                "username": {
+                    "type": "string",
+                    "example": "johndoe"
                 }
             }
         },
@@ -597,6 +810,36 @@ const docTemplate = `{
                 "updated_at": {
                     "type": "string",
                     "format": "date-time"
+                },
+                "username": {
+                    "type": "string",
+                    "example": "johndoe"
+                }
+            }
+        },
+        "models.UserSearchResult": {
+            "type": "object",
+            "properties": {
+                "avatar_url": {
+                    "type": "string",
+                    "example": "https://cdn.example.com/avatars/johndoe.png"
+                },
+                "display_name": {
+                    "type": "string",
+                    "example": "John Doe"
+                },
+                "email": {
+                    "type": "string",
+                    "format": "email",
+                    "example": "user@example.com"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                },
+                "relation_status": {
+                    "type": "string",
+                    "example": "none"
                 },
                 "username": {
                     "type": "string",
@@ -667,6 +910,17 @@ const docTemplate = `{
             "properties": {
                 "user": {
                     "$ref": "#/definitions/models.User"
+                }
+            }
+        },
+        "users.SearchUsersResponse": {
+            "type": "object",
+            "properties": {
+                "users": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.UserSearchResult"
+                    }
                 }
             }
         }

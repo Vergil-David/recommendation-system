@@ -59,6 +59,7 @@ func main() {
 	usersGroup.Use(auth.RequireAuth())
 	{
 		usersGroup.GET("/me", users.GetMeHandler)
+		usersGroup.GET("/search", users.SearchUsersHandler)
 	}
 
 	friendsGroup := r.Group("/friends")
@@ -66,6 +67,8 @@ func main() {
 	{
 		friendsGroup.GET("", friends.GetFriendsHandler)
 		friendsGroup.POST("/requests", friends.SendFriendRequestHandler)
+		friendsGroup.GET("/requests/incoming", friends.ListIncomingFriendRequestsHandler)
+		friendsGroup.GET("/requests/outgoing", friends.ListOutgoingFriendRequestsHandler)
 		friendsGroup.POST("/requests/respond", friends.RespondToFriendRequestHandler)
 	}
 
