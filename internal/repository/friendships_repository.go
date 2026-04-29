@@ -320,9 +320,19 @@ func ListOutgoingFriendRequests(ctx context.Context, userID uuid.UUID) ([]models
 func ListAcceptedFriendIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, error) {
 	query := `
 		select friend_id
-		from friendships
-		where user_id = $1 and status = 'accepted'
-		order by created_at desc
+		from (
+			select
+				case
+					when user_id = $1 then friend_id
+					else user_id
+				end as friend_id,
+				max(created_at) as accepted_at
+			from friendships
+			where status = 'accepted'
+			  and (user_id = $1 or friend_id = $1)
+			group by 1
+		) accepted_friends
+		order by accepted_at desc
 	`
 
 	rows, err := database.DB.Query(ctx, query, userID)

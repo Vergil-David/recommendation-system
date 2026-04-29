@@ -1,0 +1,13 @@
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3MDBkZmY1NS1lMzdlLTQ5ZTAtOTkwYy01YjQzNDgyM2IxNTciLCJyb2xlIjoidXNlciIsImV4cCI6MTc3NzQ2ODMyOCwiaWF0IjoxNzc3NDY3NDI4fQ.FsfzRGyY30jpvrwoOvcdGF804kjKxwlXvPFVM_4Fws8",
+  "user": {
+    "id": "700dff55-e37e-49e0-990c-5b434823b157",
+    "email": "friendsdiag_20260429155708@example.com",
+    "username": "friendsdiag_20260429155708",
+    "role": "user",
+    "email_verified": false,
+    "is_active": false,
+    "created_at": "0001-01-01T00:00:00Z",
+    "updated_at": "0001-01-01T00:00:00Z"
+  }
+}

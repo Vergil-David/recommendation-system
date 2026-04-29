@@ -2,6 +2,7 @@ package friends
 
 import (
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -185,6 +186,7 @@ func GetFriendsHandler(c *gin.Context) {
 
 	friends, err := GetFriends(c.Request.Context(), userID)
 	if err != nil {
+		log.Printf("❌ get friends failed: user_id=%s err=%v", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 		return
 	}

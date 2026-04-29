@@ -600,6 +600,27 @@ Frontend Friends page workflow:
 6. Для вкладки Outgoing використовувати `GET /friends/requests/outgoing`.
 7. Для списку друзів використовувати існуючий `GET /friends`.
 
+Frontend Settings page workflow:
+1. Для поточного профілю використовувати тільки `GET /users/me`.
+2. Endpoint повертає backend-модель `models.User`, зокрема:
+   - `id`, `email`, `username`
+   - `display_name`, `avatar_url`, `bio`
+   - `role`, `email_verified`, `is_active`
+   - `created_at`, `updated_at`, `last_login_at`
+3. `password_hash` у JSON-відповідь не потрапляє (`json:"-"` у моделі).
+4. Окремого endpoint-а для update profile зараз немає:
+   - немає `PUT /users/me`
+   - немає `PATCH /users/me`
+   - немає окремого endpoint-а для зміни `display_name`, `avatar_url` або `bio`
+5. Тому Settings page має право:
+   - читати профіль через `GET /users/me`
+   - показувати поля profile/account
+   - зберігати frontend-only preferences локально
+6. Але Settings page не повинна:
+   - робити fake save запитів на backend
+   - відправляти `display_name`/`avatar_url`/`bio` на неіснуючі маршрути
+   - вигадувати change-password або session-management API
+
 
 11) Що вже зроблено для рекомендацій, а чого бракує
 ----------------------------------------------------

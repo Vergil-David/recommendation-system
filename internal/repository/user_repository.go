@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -66,13 +67,20 @@ func GetUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]models.User, error) 
 		return []models.User{}, nil
 	}
 
+	placeholders := make([]string, 0, len(ids))
+	args := make([]any, 0, len(ids))
+	for i, id := range ids {
+		placeholders = append(placeholders, "$"+strconv.Itoa(i+1))
+		args = append(args, id)
+	}
+
 	query := fmt.Sprintf(`
 		select %s
 		from users
-		where id = any($1)
-	`, strings.Join(userSelectColumns(), ", "))
+		where id in (%s)
+	`, strings.Join(userSelectColumns(), ", "), strings.Join(placeholders, ", "))
 
-	rows, err := database.DB.Query(ctx, query, ids)
+	rows, err := database.DB.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

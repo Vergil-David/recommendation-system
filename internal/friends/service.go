@@ -3,6 +3,7 @@ package friends
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 
@@ -96,12 +97,12 @@ func RespondToFriendRequest(ctx context.Context, receiverID uuid.UUID, fromUserI
 func GetFriends(ctx context.Context, userID uuid.UUID) ([]models.User, error) {
 	friendIDs, err := repository.ListAcceptedFriendIDs(ctx, userID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list accepted friend ids: %w", err)
 	}
 
 	friends, err := repository.GetUsersByIDs(ctx, friendIDs)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get users by ids: %w", err)
 	}
 
 	return friends, nil
