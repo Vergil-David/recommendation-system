@@ -1,0 +1,3 @@
+-- Intentionally left as a no-op.
+-- The interaction state migration is additive and backfills existing production data.
+-- Rolling it back destructively would discard disliked/favorite state and other newer semantics.

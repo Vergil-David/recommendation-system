@@ -15,8 +15,10 @@ import (
 	"recommendation-system/internal/config"
 	"recommendation-system/internal/database"
 	"recommendation-system/internal/friends"
+	"recommendation-system/internal/library"
 	"recommendation-system/internal/middleware"
 	"recommendation-system/internal/movies"
+	"recommendation-system/internal/recommendations"
 	"recommendation-system/internal/security"
 	"recommendation-system/internal/users"
 )
@@ -72,7 +74,20 @@ func main() {
 		friendsGroup.POST("/requests/respond", friends.RespondToFriendRequestHandler)
 	}
 
+	libraryGroup := r.Group("/library")
+	libraryGroup.Use(auth.RequireAuth())
+	{
+		libraryGroup.GET("/favorites", library.GetFavoriteMoviesHandler)
+		libraryGroup.GET("/viewed", library.GetViewedMoviesHandler)
+		libraryGroup.GET("/liked", library.GetLikedMoviesHandler)
+	}
+
 	r.GET("/movies", movies.GetMoviesHandler)
+	r.GET("/movies/:id", movies.GetMovieHandler)
+	r.POST("/interactions", auth.RequireAuth(), recommendations.AddInteractionHandler)
+	r.GET("/interactions/items", auth.RequireAuth(), recommendations.GetInteractionStatesHandler)
+	r.GET("/recommendations", auth.RequireAuth(), recommendations.GetRecommendationsHandler)
+	r.GET("/recommendations/friends", auth.RequireAuth(), recommendations.GetFriendRecommendationsHandler)
 	r.GET("/ping", PingHandler)
 
 	handler := middleware.SetupCORS(r, cfg.Server.FrontendURL)

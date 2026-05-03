@@ -15,12 +15,22 @@ const (
 )
 
 var ErrInvalidPagination = errors.New("invalid pagination parameters")
+var ErrInvalidMovieID = errors.New("invalid movie id")
 
 type ListMoviesResult struct {
 	Items []models.Item
 	Total int
 	Page  int
 	Limit int
+}
+
+type GetMovieResult struct {
+	ID          int64
+	Title       string
+	Description string
+	ReleaseYear int
+	ImageURL    string
+	Metadata    map[string]any
 }
 
 func ListMovies(ctx context.Context, page int, limit int) (*ListMoviesResult, error) {
@@ -52,5 +62,25 @@ func ListMovies(ctx context.Context, page int, limit int) (*ListMoviesResult, er
 		Total: total,
 		Page:  page,
 		Limit: limit,
+	}, nil
+}
+
+func GetMovieByID(ctx context.Context, movieID int64) (*GetMovieResult, error) {
+	if movieID < 1 {
+		return nil, ErrInvalidMovieID
+	}
+
+	movie, err := repository.GetMovieByID(ctx, movieID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &GetMovieResult{
+		ID:          movie.ID,
+		Title:       movie.Title,
+		Description: movie.Description,
+		ReleaseYear: movie.ReleaseYear,
+		ImageURL:    movie.ImageURL,
+		Metadata:    movie.Metadata,
 	}, nil
 }

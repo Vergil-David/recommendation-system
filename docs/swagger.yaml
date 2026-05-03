@@ -104,6 +104,32 @@ definitions:
         example: pending
         type: string
     type: object
+  library.ErrorResponse:
+    properties:
+      error:
+        example: unauthorized
+        type: string
+    type: object
+  library.GetLibraryMoviesResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/library.MovieItemResponse'
+        type: array
+    type: object
+  library.MovieItemResponse:
+    properties:
+      description:
+        type: string
+      id:
+        type: integer
+      image_url:
+        type: string
+      release_year:
+        type: integer
+      title:
+        type: string
+    type: object
   main.PingResponse:
     properties:
       message:
@@ -242,6 +268,96 @@ definitions:
         type: string
       release_year:
         type: integer
+      title:
+        type: string
+    type: object
+  recommendations.AddInteractionRequest:
+    properties:
+      item_id:
+        example: 306
+        type: integer
+      type:
+        example: liked
+        type: string
+    required:
+    - item_id
+    - type
+    type: object
+  recommendations.AddInteractionResponse:
+    properties:
+      status:
+        example: recorded
+        type: string
+    type: object
+  recommendations.ErrorResponse:
+    properties:
+      error:
+        example: invalid request
+        type: string
+    type: object
+  recommendations.FriendRecommendationItemResponse:
+    properties:
+      id:
+        type: integer
+      reason:
+        example: Liked by 3 of your friends
+        type: string
+      score:
+        example: 3
+        type: integer
+      title:
+        type: string
+    type: object
+  recommendations.GetFriendRecommendationsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/recommendations.FriendRecommendationItemResponse'
+        type: array
+    type: object
+  recommendations.GetInteractionStatesResponse:
+    properties:
+      items:
+        additionalProperties:
+          $ref: '#/definitions/recommendations.InteractionStateResponse'
+        type: object
+    type: object
+  recommendations.GetRecommendationsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/recommendations.RecommendationItemResponse'
+        type: array
+    type: object
+  recommendations.InteractionStateResponse:
+    properties:
+      disliked:
+        type: boolean
+      favorite:
+        type: boolean
+      liked:
+        type: boolean
+      skipped:
+        type: boolean
+      viewed:
+        type: boolean
+    type: object
+  recommendations.RecommendationItemResponse:
+    properties:
+      description:
+        type: string
+      id:
+        type: integer
+      image_url:
+        type: string
+      reason:
+        example: Because you liked similar Ukrainian movies
+        type: string
+      release_year:
+        type: integer
+      score:
+        example: 0.91
+        type: number
       title:
         type: string
     type: object
@@ -502,6 +618,150 @@ paths:
       summary: Відповісти на запит у друзі
       tags:
       - friends
+  /interactions:
+    post:
+      consumes:
+      - application/json
+      description: Зберігає viewed, liked, disliked, favorite або skipped для поточного
+        користувача. Legacy-значення view, like і skip також приймаються.
+      parameters:
+      - description: Взаємодія користувача
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/recommendations.AddInteractionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/recommendations.AddInteractionResponse'
+        "400":
+          description: Невірний запит або interaction type
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+        "404":
+          description: Елемент не знайдено
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Записати взаємодію з елементом
+      tags:
+      - recommendations
+  /interactions/items:
+    get:
+      description: Повертає поточні стани viewed, liked, disliked, favorite і skipped
+        для переданих item_id.
+      parameters:
+      - description: CSV список item_id, наприклад 1,2,3
+        in: query
+        name: ids
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/recommendations.GetInteractionStatesResponse'
+        "400":
+          description: Невірні query-параметри
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Отримати стани взаємодій для списку елементів
+      tags:
+      - recommendations
+  /library/favorites:
+    get:
+      description: Повертає фільми поточного користувача зі станом favorite.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/library.GetLibraryMoviesResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/library.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/library.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Улюблені фільми користувача
+      tags:
+      - library
+  /library/liked:
+    get:
+      description: Повертає фільми поточного користувача зі станом liked.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/library.GetLibraryMoviesResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/library.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/library.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Лайкнуті фільми користувача
+      tags:
+      - library
+  /library/viewed:
+    get:
+      description: Повертає фільми поточного користувача зі станом viewed.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/library.GetLibraryMoviesResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/library.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/library.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Переглянуті фільми користувача
+      tags:
+      - library
   /movies:
     get:
       description: Повертає список фільмів з пагінацією.
@@ -545,6 +805,72 @@ paths:
       summary: Перевірка доступності сервісу
       tags:
       - health
+  /recommendations:
+    get:
+      description: Повертає рекомендації на основі liked/favorite сигналів і pgvector
+        similarity з fallback на популярні або нові фільми.
+      parameters:
+      - description: Ліміт рекомендацій (default 20, max 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/recommendations.GetRecommendationsResponse'
+        "400":
+          description: Невірні query-параметри
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Отримати персональні рекомендації
+      tags:
+      - recommendations
+  /recommendations/friends:
+    get:
+      description: Повертає фільми, які accepted friends поточного користувача лайкнули
+        або зберегли у favorite, відсортовані за силою social signal.
+      parameters:
+      - description: Ліміт рекомендацій (default 20, max 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/recommendations.GetFriendRecommendationsResponse'
+        "400":
+          description: Невірні query-параметри
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Отримати friend-based рекомендації
+      tags:
+      - recommendations
   /users/me:
     get:
       description: Повертає профіль поточного авторизованого користувача.

@@ -5,6 +5,7 @@ import (
 	stdsql "database/sql"
 	"errors"
 	"fmt"
+	"log"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -337,6 +338,7 @@ func ListAcceptedFriendIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, 
 
 	rows, err := database.DB.Query(ctx, query, userID)
 	if err != nil {
+		log.Printf("❌ repository: list accepted friend ids query failed, user_id=%s err=%v", userID, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -350,8 +352,10 @@ func ListAcceptedFriendIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, 
 		ids = append(ids, friendID)
 	}
 	if rows.Err() != nil {
+		log.Printf("❌ repository: list accepted friend ids row iteration failed, user_id=%s err=%v", userID, rows.Err())
 		return nil, rows.Err()
 	}
+	log.Printf("ℹ️ repository: accepted friend ids loaded, user_id=%s count=%d", userID, len(ids))
 
 	return ids, nil
 }

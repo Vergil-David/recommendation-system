@@ -6,6 +6,8 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+
+	"recommendation-system/internal/repository"
 )
 
 type MovieItemResponse struct {
@@ -21,6 +23,15 @@ type GetMoviesResponse struct {
 	Total int                 `json:"total"`
 	Page  int                 `json:"page"`
 	Limit int                 `json:"limit"`
+}
+
+type GetMovieResponse struct {
+	ID          int64          `json:"id"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	ReleaseYear int            `json:"release_year"`
+	ImageURL    string         `json:"image_url"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
 type ErrorResponse struct {
@@ -77,6 +88,47 @@ func GetMoviesHandler(c *gin.Context) {
 		Total: result.Total,
 		Page:  result.Page,
 		Limit: result.Limit,
+	})
+}
+
+// GetMovieHandler godoc
+// @Summary      Фільм за ID
+// @Description  Повертає один фільм за його ID.
+// @Tags         movies
+// @Produce      json
+// @Param        id   path      int  true  "ID фільму"
+// @Success      200  {object}  GetMovieResponse
+// @Failure      400  {object}  ErrorResponse "Некоректний ID"
+// @Failure      404  {object}  ErrorResponse "Фільм не знайдено"
+// @Failure      500  {object}  ErrorResponse "Помилка бази даних"
+// @Router       /movies/{id} [get]
+func GetMovieHandler(c *gin.Context) {
+	movieID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || movieID < 1 {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid path parameter: id"})
+		return
+	}
+
+	result, err := GetMovieByID(c.Request.Context(), movieID)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrInvalidMovieID):
+			c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		case errors.Is(err, repository.ErrMovieNotFound):
+			c.JSON(http.StatusNotFound, ErrorResponse{Error: err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "internal server error"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, GetMovieResponse{
+		ID:          result.ID,
+		Title:       result.Title,
+		Description: result.Description,
+		ReleaseYear: result.ReleaseYear,
+		ImageURL:    result.ImageURL,
+		Metadata:    result.Metadata,
 	})
 }
 
