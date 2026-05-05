@@ -47,3 +47,16 @@ func SearchUsers(ctx context.Context, currentUserID uuid.UUID, query string, lim
 
 	return repository.SearchUsersWithFriendshipStatus(ctx, currentUserID, query, limit)
 }
+
+// UpdateProfile updates the profile fields (display_name, avatar_url, bio) for the given user.
+func UpdateProfile(ctx context.Context, userID uuid.UUID, update repository.ProfileUpdate) (*models.User, error) {
+	user, err := repository.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !user.IsActive {
+		return nil, ErrUserInactive
+	}
+
+	return repository.UpdateUserProfile(ctx, userID, update)
+}

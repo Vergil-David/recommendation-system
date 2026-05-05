@@ -29,6 +29,12 @@ var (
 	ErrInvalidInteractionType = errors.New("invalid interaction type")
 )
 
+// InteractionResult is returned by AddInteraction to indicate what happened.
+type InteractionResult struct {
+	ToggledOff bool
+	State      repository.InteractionState
+}
+
 type Recommendation struct {
 	Item   models.Item
 	Score  float64
@@ -55,20 +61,38 @@ type recommendationAggregate struct {
 	Reason        string
 }
 
-func AddInteraction(ctx context.Context, userID uuid.UUID, itemID int64, interactionType string) error {
+func AddInteraction(ctx context.Context, userID uuid.UUID, itemID int64, interactionType string) (*InteractionResult, error) {
 	if itemID <= 0 {
-		return ErrInvalidItemID
+		return nil, ErrInvalidItemID
 	}
 	interactionType, err := normalizeInteractionType(interactionType)
 	if err != nil {
-		return ErrInvalidInteractionType
+		return nil, ErrInvalidInteractionType
 	}
 
 	if _, err := repository.GetItemByID(ctx, itemID); err != nil {
-		return err
+		return nil, err
 	}
 
-	return repository.UpsertInteraction(ctx, userID, itemID, interactionType)
+	// Check current state for toggle behavior.
+	currentState, err := repository.GetUserInteractionState(ctx, userID, itemID)
+	if err != nil {
+		return nil, fmt.Errorf("get interaction state: %w", err)
+	}
+
+	if isInteractionActive(currentState, interactionType) {
+		if err := repository.ResetInteractionState(ctx, userID, itemID, interactionType); err != nil {
+			return nil, fmt.Errorf("reset interaction state: %w", err)
+		}
+		newState, _ := repository.GetUserInteractionState(ctx, userID, itemID)
+		return &InteractionResult{ToggledOff: true, State: newState}, nil
+	}
+
+	if err := repository.UpsertInteraction(ctx, userID, itemID, interactionType); err != nil {
+		return nil, err
+	}
+	newState, _ := repository.GetUserInteractionState(ctx, userID, itemID)
+	return &InteractionResult{ToggledOff: false, State: newState}, nil
 }
 
 func GetInteractionStates(ctx context.Context, userID uuid.UUID, itemIDs []int64) (map[int64]repository.InteractionState, error) {
@@ -489,3 +513,21 @@ func positiveSignalLabel(signal string) string {
 		return "liked"
 	}
 }
+
+func isInteractionActive(state repository.InteractionState, interactionType string) bool {
+	switch interactionType {
+	case repository.InteractionTypeViewed:
+		return state.Viewed
+	case repository.InteractionTypeLiked:
+		return state.Liked
+	case repository.InteractionTypeDisliked:
+		return state.Disliked
+	case repository.InteractionTypeFavorite:
+		return state.Favorite
+	case repository.InteractionTypeSkipped:
+		return state.Skipped
+	default:
+		return false
+	}
+}
+

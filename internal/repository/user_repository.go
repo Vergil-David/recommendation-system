@@ -253,3 +253,47 @@ func userSelectColumns() []string {
 	}
 	return cols
 }
+
+// ProfileUpdate holds the optional fields that can be changed via PUT /users/me.
+type ProfileUpdate struct {
+	DisplayName *string
+	AvatarURL   *string
+	Bio         *string
+}
+
+// UpdateUserProfile updates display_name, avatar_url, and/or bio for a user.
+// Only non-nil fields are written. Returns the updated user.
+func UpdateUserProfile(ctx context.Context, userID uuid.UUID, update ProfileUpdate) (*models.User, error) {
+	setClauses := make([]string, 0, 3)
+	args := make([]any, 0, 4)
+
+	if update.DisplayName != nil && database.HasUserColumn("display_name") {
+		args = append(args, *update.DisplayName)
+		setClauses = append(setClauses, fmt.Sprintf("display_name = $%d", len(args)))
+	}
+	if update.AvatarURL != nil && database.HasUserColumn("avatar_url") {
+		args = append(args, *update.AvatarURL)
+		setClauses = append(setClauses, fmt.Sprintf("avatar_url = $%d", len(args)))
+	}
+	if update.Bio != nil && database.HasUserColumn("bio") {
+		args = append(args, *update.Bio)
+		setClauses = append(setClauses, fmt.Sprintf("bio = $%d", len(args)))
+	}
+
+	if len(setClauses) == 0 {
+		return GetUserByID(ctx, userID)
+	}
+
+	args = append(args, userID)
+	query := fmt.Sprintf(
+		"update users set %s where id = $%d",
+		strings.Join(setClauses, ", "),
+		len(args),
+	)
+
+	if _, err := database.DB.Exec(ctx, query, args...); err != nil {
+		return nil, fmt.Errorf("update user profile: %w", err)
+	}
+
+	return GetUserByID(ctx, userID)
+}

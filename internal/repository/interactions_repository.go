@@ -425,6 +425,25 @@ func interactionStateColumn(interactionType string) (string, error) {
 	}
 }
 
+// ResetInteractionState toggles off a single interaction boolean for a (user, item) pair.
+// This enables undo/toggle behavior: if a user clicks "liked" again, the like is removed.
+func ResetInteractionState(ctx context.Context, userID uuid.UUID, itemID int64, interactionType string) error {
+	stateColumn, err := interactionStateColumn(interactionType)
+	if err != nil {
+		return err
+	}
+
+	// Build the SET clause: reset the boolean and sync is_liked for the liked type.
+	setClause := stateColumn + " = false"
+	if interactionType == InteractionTypeLiked {
+		setClause = "liked = false, is_liked = false"
+	}
+
+	query := `update interactions set ` + setClause + `, updated_at = now() where user_id = $1 and item_id = $2`
+	_, err = database.DB.Exec(ctx, query, userID, itemID)
+	return err
+}
+
 func scanUserLikedItem(row rowScanner) (UserLikedItem, error) {
 	var likedItem UserLikedItem
 	if err := row.Scan(

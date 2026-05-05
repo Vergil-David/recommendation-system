@@ -61,6 +61,7 @@ func main() {
 	usersGroup.Use(auth.RequireAuth())
 	{
 		usersGroup.GET("/me", users.GetMeHandler)
+		usersGroup.PUT("/me", users.UpdateProfileHandler)
 		usersGroup.GET("/search", users.SearchUsersHandler)
 	}
 

@@ -20,7 +20,8 @@ type AddInteractionRequest struct {
 }
 
 type AddInteractionResponse struct {
-	Status string `json:"status" example:"recorded"`
+	Status string                   `json:"status" example:"recorded"`
+	State  InteractionStateResponse `json:"state"`
 }
 
 type InteractionStateResponse struct {
@@ -91,7 +92,8 @@ func AddInteractionHandler(c *gin.Context) {
 		return
 	}
 
-	if err := AddInteraction(c.Request.Context(), userID, req.ItemID, req.Type); err != nil {
+	result, err := AddInteraction(c.Request.Context(), userID, req.ItemID, req.Type)
+	if err != nil {
 		log.Printf("❌ interactions: add interaction failed, user_id=%s item_id=%d type=%s err=%v", userID, req.ItemID, req.Type, err)
 		switch {
 		case errors.Is(err, ErrInvalidItemID), errors.Is(err, ErrInvalidInteractionType):
@@ -104,7 +106,21 @@ func AddInteractionHandler(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, AddInteractionResponse{Status: "recorded"})
+	status := "recorded"
+	if result.ToggledOff {
+		status = "toggled_off"
+	}
+
+	c.JSON(http.StatusOK, AddInteractionResponse{
+		Status: status,
+		State: InteractionStateResponse{
+			Viewed:   result.State.Viewed,
+			Liked:    result.State.Liked,
+			Disliked: result.State.Disliked,
+			Favorite: result.State.Favorite,
+			Skipped:  result.State.Skipped,
+		},
+	})
 }
 
 // GetInteractionStatesHandler godoc
