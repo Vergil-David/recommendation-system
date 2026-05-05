@@ -113,11 +113,10 @@ func GetMovies(ctx context.Context, limit int, offset int) ([]models.Item, int, 
 		return nil, 0, err
 	}
 
-	query := `
-		select id, title, description, release_year, image_url
-		from items
-		where type = 'movie'
-		order by created_at desc
+	query := itemSelectProjection + itemSelectFromAndJoins + `
+		where i.type = 'movie'
+		group by i.id
+		order by i.created_at desc
 		limit $1 offset $2
 	`
 
@@ -129,14 +128,8 @@ func GetMovies(ctx context.Context, limit int, offset int) ([]models.Item, int, 
 
 	items := make([]models.Item, 0, limit)
 	for rows.Next() {
-		var item models.Item
-		if err := rows.Scan(
-			&item.ID,
-			&item.Title,
-			&item.Description,
-			&item.ReleaseYear,
-			&item.ImageURL,
-		); err != nil {
+		item, err := scanItem(rows)
+		if err != nil {
 			return nil, 0, err
 		}
 		items = append(items, item)

@@ -11,11 +11,12 @@ import (
 )
 
 type MovieItemResponse struct {
-	ID          int64  `json:"id"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	ReleaseYear int    `json:"release_year"`
-	ImageURL    string `json:"image_url"`
+	ID          int64    `json:"id"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	ReleaseYear int      `json:"release_year"`
+	ImageURL    string   `json:"image_url"`
+	Genres      []string `json:"genres"`
 }
 
 type GetMoviesResponse struct {
@@ -80,6 +81,7 @@ func GetMoviesHandler(c *gin.Context) {
 			Description: item.Description,
 			ReleaseYear: item.ReleaseYear,
 			ImageURL:    item.ImageURL,
+			Genres:      item.Genres,
 		})
 	}
 

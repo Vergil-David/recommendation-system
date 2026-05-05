@@ -51,10 +51,13 @@ type GetRecommendationsResponse struct {
 }
 
 type FriendRecommendationItemResponse struct {
-	ID     int64  `json:"id"`
-	Title  string `json:"title"`
-	Score  int    `json:"score" example:"3"`
-	Reason string `json:"reason" example:"Liked by 3 of your friends"`
+	ID          int64  `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	ReleaseYear int    `json:"release_year"`
+	ImageURL    string `json:"image_url"`
+	Score       int    `json:"score" example:"3"`
+	Reason      string `json:"reason" example:"Liked by 3 of your friends"`
 }
 
 type GetFriendRecommendationsResponse struct {
@@ -266,10 +269,13 @@ func GetFriendRecommendationsHandler(c *gin.Context) {
 	items := make([]FriendRecommendationItemResponse, 0, len(recommendations))
 	for _, recommendation := range recommendations {
 		items = append(items, FriendRecommendationItemResponse{
-			ID:     recommendation.Item.ID,
-			Title:  recommendation.Item.Title,
-			Score:  recommendation.FriendCount,
-			Reason: recommendation.Reason,
+			ID:          recommendation.Item.ID,
+			Title:       recommendation.Item.Title,
+			Description: recommendation.Item.Description,
+			ReleaseYear: recommendation.Item.ReleaseYear,
+			ImageURL:    recommendation.Item.ImageURL,
+			Score:       recommendation.FriendCount,
+			Reason:      recommendation.Reason,
 		})
 	}
 
