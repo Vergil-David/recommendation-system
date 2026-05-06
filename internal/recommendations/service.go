@@ -104,27 +104,30 @@ func GetInteractionStates(ctx context.Context, userID uuid.UUID, itemIDs []int64
 	return repository.GetUserInteractionStates(ctx, userID, normalizedItemIDs)
 }
 
-func GetRecommendations(ctx context.Context, userID uuid.UUID, limit int) ([]Recommendation, error) {
+func GetRecommendations(ctx context.Context, userID uuid.UUID, limit int, offset int) ([]Recommendation, int, error) {
 	limit, err := normalizeLimit(limit)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+	if offset < 0 {
+		offset = 0
 	}
 
 	likedItems, err := repository.GetUserItemsByInteractionType(ctx, userID, repository.InteractionTypeLiked)
 	if err != nil {
-		return nil, fmt.Errorf("get user liked items: %w", err)
+		return nil, 0, fmt.Errorf("get user liked items: %w", err)
 	}
 
 	favoriteItems, err := repository.GetUserItemsByInteractionType(ctx, userID, repository.InteractionTypeFavorite)
 	if err != nil {
-		return nil, fmt.Errorf("get user favorite items: %w", err)
+		return nil, 0, fmt.Errorf("get user favorite items: %w", err)
 	}
 
 	sourceItems := buildRecommendationSources(likedItems, favoriteItems)
 
 	excludedItemIDs, err := repository.GetUserExcludedItemIDs(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("get user excluded items: %w", err)
+		return nil, 0, fmt.Errorf("get user excluded items: %w", err)
 	}
 
 	excludeSet := make(map[int64]struct{}, len(excludedItemIDs))
@@ -132,26 +135,36 @@ func GetRecommendations(ctx context.Context, userID uuid.UUID, limit int) ([]Rec
 		excludeSet[itemID] = struct{}{}
 	}
 
-	recommendations := make([]Recommendation, 0, limit)
+	// Build the full candidate pool (up to offset + limit)
+	poolSize := offset + limit
+	recommendations := make([]Recommendation, 0, poolSize)
 	if len(sourceItems) > 0 {
-		recommendations, err = buildSimilarityRecommendations(ctx, sourceItems, excludeSet, limit)
+		recommendations, err = buildSimilarityRecommendations(ctx, sourceItems, excludeSet, poolSize)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 
-	if len(recommendations) < limit {
-		recommendations, err = appendFallbackRecommendations(ctx, recommendations, excludeSet, limit, len(sourceItems) == 0)
+	if len(recommendations) < poolSize {
+		recommendations, err = appendFallbackRecommendations(ctx, recommendations, excludeSet, poolSize, len(sourceItems) == 0)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
+
+	total := len(recommendations)
+
+	// Apply offset
+	if offset >= total {
+		return []Recommendation{}, total, nil
+	}
+	recommendations = recommendations[offset:]
 
 	if len(recommendations) > limit {
 		recommendations = recommendations[:limit]
 	}
 
-	return recommendations, nil
+	return recommendations, total, nil
 }
 
 func GetFriendRecommendations(ctx context.Context, userID uuid.UUID, limit int) ([]FriendRecommendation, error) {
@@ -309,6 +322,28 @@ func buildSimilarityRecommendations(ctx context.Context, sourceItems []recommend
 
 func appendFallbackRecommendations(ctx context.Context, current []Recommendation, excludeSet map[int64]struct{}, limit int, coldStart bool) ([]Recommendation, error) {
 	missing := limit - len(current)
+	if missing <= 0 {
+		return current, nil
+	}
+
+	// For cold-start users, try trending movies first (most engaged in last 30 days)
+	if coldStart {
+		trendingItems, err := repository.GetTrendingMovies(ctx, missing, 30, mapKeys(excludeSet))
+		if err != nil {
+			log.Printf("⚠️ recommendations: trending query failed (non-fatal), falling back: %v", err)
+		} else {
+			for idx, item := range trendingItems {
+				excludeSet[item.ID] = struct{}{}
+				current = append(current, Recommendation{
+					Item:   item,
+					Score:  roundScore(math.Max(0.15, fallbackBaseScore-float64(idx)*0.015)),
+					Reason: "Trending among our users right now",
+				})
+			}
+			missing = limit - len(current)
+		}
+	}
+
 	if missing <= 0 {
 		return current, nil
 	}

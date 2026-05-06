@@ -7,8 +7,7 @@ CREATE TABLE IF NOT EXISTS public.interactions (
     viewed_at timestamptz DEFAULT now(),
     interaction_type text NOT NULL DEFAULT 'view',
     updated_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT interactions_user_id_item_id_key UNIQUE (user_id, item_id),
-    CONSTRAINT interactions_interaction_type_check CHECK (interaction_type IN ('view', 'like', 'skip'))
+    CONSTRAINT interactions_user_id_item_id_key UNIQUE (user_id, item_id)
 );
 
 ALTER TABLE public.interactions
@@ -34,20 +33,9 @@ ALTER TABLE public.interactions
     ALTER COLUMN interaction_type SET DEFAULT 'view',
     ALTER COLUMN updated_at SET DEFAULT now();
 
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_constraint
-        WHERE conname = 'interactions_interaction_type_check'
-          AND conrelid = 'public.interactions'::regclass
-    ) THEN
-        ALTER TABLE public.interactions
-            ADD CONSTRAINT interactions_interaction_type_check
-            CHECK (interaction_type IN ('view', 'like', 'skip'));
-    END IF;
-END
-$$;
+-- NOTE: The interaction_type constraint is created by migration 0005
+-- with the correct values ('viewed', 'liked', 'disliked', 'favorite', 'skipped').
+-- We intentionally do NOT create a constraint here to avoid inconsistency.
 
 CREATE INDEX IF NOT EXISTS interactions_user_id_idx
     ON public.interactions (user_id);

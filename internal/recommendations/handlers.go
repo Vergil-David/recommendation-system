@@ -47,7 +47,10 @@ type RecommendationItemResponse struct {
 }
 
 type GetRecommendationsResponse struct {
-	Items []RecommendationItemResponse `json:"items"`
+	Items   []RecommendationItemResponse `json:"items"`
+	Total   int                          `json:"total"`
+	Offset  int                          `json:"offset"`
+	HasMore bool                         `json:"has_more"`
 }
 
 type FriendRecommendationItemResponse struct {
@@ -185,6 +188,7 @@ func GetInteractionStatesHandler(c *gin.Context) {
 // @Produce      json
 // @Security     BearerAuth
 // @Param        limit  query     int  false  "Ліміт рекомендацій (default 20, max 50)"
+// @Param        offset query     int  false  "Зсув для пагінації (default 0)"
 // @Success      200    {object}  GetRecommendationsResponse
 // @Failure      400    {object}  ErrorResponse "Невірні query-параметри"
 // @Failure      401    {object}  ErrorResponse "Неавторизовано"
@@ -203,9 +207,16 @@ func GetRecommendationsHandler(c *gin.Context) {
 		return
 	}
 
-	recommendations, err := GetRecommendations(c.Request.Context(), userID, limit)
+	offset, err := parseOptionalPositiveInt(c.Query("offset"))
 	if err != nil {
-		log.Printf("❌ recommendations: get recommendations failed, user_id=%s limit=%d err=%v", userID, limit, err)
+		log.Printf("❌ recommendations: invalid offset query, raw=%q err=%v ip=%s", c.Query("offset"), err, c.ClientIP())
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid query parameter: offset"})
+		return
+	}
+
+	recommendations, total, err := GetRecommendations(c.Request.Context(), userID, limit, offset)
+	if err != nil {
+		log.Printf("❌ recommendations: get recommendations failed, user_id=%s limit=%d offset=%d err=%v", userID, limit, offset, err)
 		if errors.Is(err, ErrInvalidLimit) {
 			c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 			return
@@ -227,7 +238,12 @@ func GetRecommendationsHandler(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, GetRecommendationsResponse{Items: items})
+	c.JSON(http.StatusOK, GetRecommendationsResponse{
+		Items:   items,
+		Total:   total,
+		Offset:  offset,
+		HasMore: offset+len(items) < total,
+	})
 }
 
 // GetFriendRecommendationsHandler godoc

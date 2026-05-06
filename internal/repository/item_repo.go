@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
 
 	"recommendation-system/internal/database"
 	"recommendation-system/internal/models"
@@ -103,7 +101,6 @@ func GetSimilarItemsByItemID(ctx context.Context, itemID int64, limit int, exclu
 		return []SimilarItem{}, nil
 	}
 
-	args := []any{itemID}
 	query := itemSelectProjection + `,
 		(i.embedding <-> source.embedding) as distance
 	from (
@@ -117,22 +114,12 @@ func GetSimilarItemsByItemID(ctx context.Context, itemID int64, limit int, exclu
 	left join genres g on g.id = ig.genre_id
 	where i.type = 'movie'
 	  and i.id <> $1
-`
-
-	if len(excludeIDs) > 0 {
-		placeholders := make([]string, 0, len(excludeIDs))
-		for _, excludeID := range excludeIDs {
-			args = append(args, excludeID)
-			placeholders = append(placeholders, "$"+strconv.Itoa(len(args)))
-		}
-		query += " and i.id not in (" + strings.Join(placeholders, ", ") + ")\n"
-	}
-
-	args = append(args, limit)
-	query += `
+	  and not (i.id = any($2))
 	group by i.id, source.embedding
 	order by distance asc, i.created_at desc
-	limit $` + strconv.Itoa(len(args))
+	limit $3
+`
+	args := []any{itemID, excludeIDs, limit}
 
 	rows, err := database.DB.Query(ctx, query, args...)
 	if err != nil {
@@ -163,28 +150,17 @@ func GetPopularOrNewestMovies(ctx context.Context, limit int, excludeIDs []int64
 		return []models.Item{}, nil
 	}
 
-	args := []any{}
 	query := itemSelectProjection + itemSelectFromAndJoins + `
 		where i.type = 'movie'
-`
-
-	if len(excludeIDs) > 0 {
-		placeholders := make([]string, 0, len(excludeIDs))
-		for _, excludeID := range excludeIDs {
-			args = append(args, excludeID)
-			placeholders = append(placeholders, "$"+strconv.Itoa(len(args)))
-		}
-		query += " and i.id not in (" + strings.Join(placeholders, ", ") + ")\n"
-	}
-
-	args = append(args, limit)
-	query += `
+		  and not (i.id = any($1))
 		group by i.id
 		order by
 			coalesce(nullif(i.metadata->>'popularity', '')::double precision, 0) desc,
 			coalesce(i.release_year, 0) desc,
 			i.created_at desc
-		limit $` + strconv.Itoa(len(args))
+		limit $2
+`
+	args := []any{excludeIDs, limit}
 
 	rows, err := database.DB.Query(ctx, query, args...)
 	if err != nil {
@@ -196,6 +172,60 @@ func GetPopularOrNewestMovies(ctx context.Context, limit int, excludeIDs []int64
 	for rows.Next() {
 		item, err := scanItem(rows)
 		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if rows.Err() != nil {
+		return nil, rows.Err()
+	}
+
+	return items, nil
+}
+
+// GetTrendingMovies returns movies ranked by total unique user interaction
+// count in the last N days. This solves cold-start by showing what's currently
+// hot among all users.
+func GetTrendingMovies(ctx context.Context, limit int, days int, excludeIDs []int64) ([]models.Item, error) {
+	if limit <= 0 {
+		return []models.Item{}, nil
+	}
+	if days <= 0 {
+		days = 30
+	}
+
+	query := itemSelectProjection + `,
+		count(distinct intr.user_id) as engagement_count
+	` + itemSelectFromAndJoins + `
+		join interactions intr on intr.item_id = i.id
+		where i.type = 'movie'
+		  and intr.updated_at >= now() - ($1 || ' days')::interval
+		  and not (i.id = any($2))
+		group by i.id
+		order by engagement_count desc, coalesce(i.release_year, 0) desc
+		limit $3
+`
+	args := []any{days, excludeIDs, limit}
+
+	rows, err := database.DB.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query trending movies: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]models.Item, 0, limit)
+	for rows.Next() {
+		var item models.Item
+		var engagementCount int
+		if err := rows.Scan(
+			&item.ID,
+			&item.Title,
+			&item.Description,
+			&item.ReleaseYear,
+			&item.ImageURL,
+			&item.Genres,
+			&engagementCount,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
