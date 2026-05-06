@@ -359,3 +359,21 @@ func ListAcceptedFriendIDs(ctx context.Context, userID uuid.UUID) ([]uuid.UUID, 
 
 	return ids, nil
 }
+
+// DeleteFriendship removes both directions of an accepted friendship.
+// Because EnsureAcceptedMirror creates rows in both directions,
+// we must delete both (user_id, friend_id) and (friend_id, user_id).
+func DeleteFriendship(ctx context.Context, userID, friendID uuid.UUID) (int64, error) {
+	query := `
+		delete from friendships
+		where (user_id = $1 and friend_id = $2)
+		   or (user_id = $2 and friend_id = $1)
+	`
+
+	tag, err := database.DB.Exec(ctx, query, userID, friendID)
+	if err != nil {
+		return 0, fmt.Errorf("delete friendship: %w", err)
+	}
+
+	return tag.RowsAffected(), nil
+}

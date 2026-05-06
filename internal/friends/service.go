@@ -17,6 +17,7 @@ var (
 	ErrInvalidAction           = errors.New("invalid action")
 	ErrFriendRequestNotFound   = errors.New("friend request not found")
 	ErrFriendRequestNotPending = errors.New("friend request is not pending")
+	ErrFriendshipNotFound      = errors.New("friendship not found")
 )
 
 func SendFriendRequest(ctx context.Context, fromUserID, toUserID uuid.UUID) error {
@@ -114,4 +115,22 @@ func ListIncomingFriendRequests(ctx context.Context, userID uuid.UUID) ([]models
 
 func ListOutgoingFriendRequests(ctx context.Context, userID uuid.UUID) ([]models.OutgoingFriendRequest, error) {
 	return repository.ListOutgoingFriendRequests(ctx, userID)
+}
+
+// RemoveFriend deletes an accepted friendship between two users (both directions).
+func RemoveFriend(ctx context.Context, userID, friendID uuid.UUID) error {
+	if userID == friendID {
+		return ErrCannotFriendSelf
+	}
+
+	deleted, err := repository.DeleteFriendship(ctx, userID, friendID)
+	if err != nil {
+		return fmt.Errorf("remove friend: %w", err)
+	}
+
+	if deleted == 0 {
+		return ErrFriendshipNotFound
+	}
+
+	return nil
 }

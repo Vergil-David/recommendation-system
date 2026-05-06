@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -49,6 +50,10 @@ func main() {
 		log.Fatalf("failed to set trusted proxies: %v", err)
 	}
 
+	// Rate limiter: 60 requests/second per IP, burst up to 120
+	limiter := middleware.NewRateLimiter(60, 120, time.Second)
+	r.Use(limiter.Middleware())
+
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	authGroup := r.Group("/auth")
@@ -69,6 +74,7 @@ func main() {
 	friendsGroup.Use(auth.RequireAuth())
 	{
 		friendsGroup.GET("", friends.GetFriendsHandler)
+		friendsGroup.DELETE("/:id", friends.RemoveFriendHandler)
 		friendsGroup.POST("/requests", friends.SendFriendRequestHandler)
 		friendsGroup.GET("/requests/incoming", friends.ListIncomingFriendRequestsHandler)
 		friendsGroup.GET("/requests/outgoing", friends.ListOutgoingFriendRequestsHandler)

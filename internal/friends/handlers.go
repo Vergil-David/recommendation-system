@@ -257,3 +257,55 @@ func ListOutgoingFriendRequestsHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, OutgoingFriendRequestsResponse{Requests: requests})
 }
+
+type DeleteFriendResponse struct {
+	Status string `json:"status" example:"removed"`
+}
+
+// RemoveFriendHandler godoc
+// @Summary      Видалити друга
+// @Description  Видаляє accepted-дружбу з обох сторін. Потребує UUID друга у path.
+// @Tags         friends
+// @Produce      json
+// @Security     BearerAuth
+// @Param        id   path      string  true  "UUID друга для видалення"
+// @Success      200  {object}  DeleteFriendResponse "Друга видалено"
+// @Failure      400  {object}  ErrorResponse "Невалідний UUID"
+// @Failure      401  {object}  ErrorResponse "Неавторизовано"
+// @Failure      404  {object}  ErrorResponse "Дружбу не знайдено"
+// @Failure      500  {object}  ErrorResponse "Внутрішня помилка сервера"
+// @Router       /friends/{id} [delete]
+func RemoveFriendHandler(c *gin.Context) {
+	userIDRaw, exists := c.Get(auth.CtxUserIDKey)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	userID, ok := userIDRaw.(uuid.UUID)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token subject"})
+		return
+	}
+
+	friendID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid friend id"})
+		return
+	}
+
+	if err := RemoveFriend(c.Request.Context(), userID, friendID); err != nil {
+		switch {
+		case errors.Is(err, ErrCannotFriendSelf):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, ErrFriendshipNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		default:
+			log.Printf("❌ remove friend failed: user_id=%s friend_id=%s err=%v", userID, friendID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, DeleteFriendResponse{Status: "removed"})
+}
