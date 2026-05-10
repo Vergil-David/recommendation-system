@@ -20,6 +20,7 @@ const (
 	defaultLimit                     = 20
 	maxLimit                         = 50
 	similarItemsPerLikedItem         = 12
+	profileVectorCandidatePool       = 60
 	fallbackBaseScore        float64 = 0.30
 )
 
@@ -85,6 +86,7 @@ func AddInteraction(ctx context.Context, userID uuid.UUID, itemID int64, interac
 			return nil, fmt.Errorf("reset interaction state: %w", err)
 		}
 		newState, _ := repository.GetUserInteractionState(ctx, userID, itemID)
+		scheduleProfileRebuildIfNeeded(ctx, userID, interactionType)
 		return &InteractionResult{ToggledOff: true, State: newState}, nil
 	}
 
@@ -92,6 +94,7 @@ func AddInteraction(ctx context.Context, userID uuid.UUID, itemID int64, interac
 		return nil, err
 	}
 	newState, _ := repository.GetUserInteractionState(ctx, userID, itemID)
+	scheduleProfileRebuildIfNeeded(ctx, userID, interactionType)
 	return &InteractionResult{ToggledOff: false, State: newState}, nil
 }
 
@@ -113,18 +116,6 @@ func GetRecommendations(ctx context.Context, userID uuid.UUID, limit int, offset
 		offset = 0
 	}
 
-	likedItems, err := repository.GetUserItemsByInteractionType(ctx, userID, repository.InteractionTypeLiked)
-	if err != nil {
-		return nil, 0, fmt.Errorf("get user liked items: %w", err)
-	}
-
-	favoriteItems, err := repository.GetUserItemsByInteractionType(ctx, userID, repository.InteractionTypeFavorite)
-	if err != nil {
-		return nil, 0, fmt.Errorf("get user favorite items: %w", err)
-	}
-
-	sourceItems := buildRecommendationSources(likedItems, favoriteItems)
-
 	excludedItemIDs, err := repository.GetUserExcludedItemIDs(ctx, userID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("get user excluded items: %w", err)
@@ -138,17 +129,82 @@ func GetRecommendations(ctx context.Context, userID uuid.UUID, limit int, offset
 	// Build the full candidate pool (up to offset + limit)
 	poolSize := offset + limit
 	recommendations := make([]Recommendation, 0, poolSize)
-	if len(sourceItems) > 0 {
-		recommendations, err = buildSimilarityRecommendations(ctx, sourceItems, excludeSet, poolSize)
+
+	// Strategy 1: Profile-vector based (single pgvector query — O(1))
+	profileVector, profileErr := repository.GetUserProfileEmbedding(ctx, userID)
+	if profileErr != nil {
+		log.Printf("⚠️ recommendations: failed to load profile vector, falling back: %v", profileErr)
+	}
+
+	if profileVector != nil {
+		recommendations, err = buildProfileVectorRecommendations(ctx, userID, profileVector, excludeSet, poolSize)
+		if err != nil {
+			log.Printf("⚠️ recommendations: profile-vector search failed, falling back: %v", err)
+		}
+	}
+
+	// Strategy 2: Per-item similarity (legacy, O(N) — used when no profile vector)
+	if len(recommendations) == 0 {
+		likedItems, err := repository.GetUserItemsByInteractionType(ctx, userID, repository.InteractionTypeLiked)
+		if err != nil {
+			return nil, 0, fmt.Errorf("get user liked items: %w", err)
+		}
+
+		favoriteItems, err := repository.GetUserItemsByInteractionType(ctx, userID, repository.InteractionTypeFavorite)
+		if err != nil {
+			return nil, 0, fmt.Errorf("get user favorite items: %w", err)
+		}
+
+		sourceItems := buildRecommendationSources(likedItems, favoriteItems)
+
+		if len(sourceItems) > 0 {
+			recommendations, err = buildSimilarityRecommendations(ctx, sourceItems, excludeSet, poolSize)
+			if err != nil {
+				return nil, 0, err
+			}
+		}
+
+		// Trigger async profile rebuild so next request uses the fast path.
+		if len(sourceItems) > 0 {
+			go func() {
+				if rebuildErr := RebuildUserProfileVector(context.Background(), userID); rebuildErr != nil {
+					log.Printf("⚠️ recommendations: async profile rebuild failed: %v", rebuildErr)
+				}
+			}()
+		}
+	}
+
+	coldStart := len(recommendations) == 0 && profileVector == nil
+
+	if len(recommendations) < poolSize {
+		recommendations, err = appendFallbackRecommendations(ctx, recommendations, excludeSet, poolSize, coldStart)
 		if err != nil {
 			return nil, 0, err
 		}
 	}
 
-	if len(recommendations) < poolSize {
-		recommendations, err = appendFallbackRecommendations(ctx, recommendations, excludeSet, poolSize, len(sourceItems) == 0)
-		if err != nil {
-			return nil, 0, err
+	// --- Negative signal penalty ---
+	// Penalize candidates that are semantically similar to disliked/skipped items.
+	if len(recommendations) > 0 && !coldStart {
+		negativeEmbeddings, negErr := repository.GetUserNegativeItemEmbeddings(ctx, userID)
+		if negErr != nil {
+			log.Printf("⚠️ recommendations: failed to load negative embeddings (non-fatal): %v", negErr)
+		}
+		if len(negativeEmbeddings) > 0 {
+			negativeCentroid := buildNegativeCentroid(negativeEmbeddings)
+			if negativeCentroid != nil {
+				// Batch-load candidate embeddings for cosine comparison.
+				candidateIDs := make([]int64, len(recommendations))
+				for i, rec := range recommendations {
+					candidateIDs[i] = rec.Item.ID
+				}
+				candidateEmbeddings, embErr := repository.GetItemEmbeddingsByIDs(ctx, candidateIDs)
+				if embErr != nil {
+					log.Printf("⚠️ recommendations: failed to load candidate embeddings (non-fatal): %v", embErr)
+				} else {
+					applyNegativePenalty(recommendations, candidateEmbeddings, negativeCentroid)
+				}
+			}
 		}
 	}
 
@@ -252,6 +308,76 @@ func GetFriendRecommendations(ctx context.Context, userID uuid.UUID, limit int) 
 	log.Printf("ℹ️ friend recommendations: done, user_id=%s returned=%d", userID, len(recommendations))
 
 	return recommendations, nil
+}
+
+// buildProfileVectorRecommendations uses the precomputed user profile embedding
+// for a single pgvector nearest-neighbor query instead of N per-item queries.
+func buildProfileVectorRecommendations(ctx context.Context, userID uuid.UUID, profileVector []float32, excludeSet map[int64]struct{}, limit int) ([]Recommendation, error) {
+	// Fetch more candidates than needed so we can filter and rank.
+	candidateLimit := limit
+	if candidateLimit < profileVectorCandidatePool {
+		candidateLimit = profileVectorCandidatePool
+	}
+
+	candidates, err := repository.FindSimilarByProfileVector(ctx, profileVector, candidateLimit, mapKeys(excludeSet))
+	if err != nil {
+		return nil, fmt.Errorf("profile vector search: %w", err)
+	}
+
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+
+	recommendations := make([]Recommendation, 0, len(candidates))
+	for _, candidate := range candidates {
+		score := similarityScore(candidate.Distance)
+		if score <= 0 {
+			continue
+		}
+
+		if _, excluded := excludeSet[candidate.Item.ID]; excluded {
+			continue
+		}
+
+		recommendations = append(recommendations, Recommendation{
+			Item:   candidate.Item,
+			Score:  roundScore(score),
+			Reason: "Recommended based on your taste profile",
+		})
+	}
+
+	sort.Slice(recommendations, func(i, j int) bool {
+		if recommendations[i].Score == recommendations[j].Score {
+			return recommendations[i].Item.ID > recommendations[j].Item.ID
+		}
+		return recommendations[i].Score > recommendations[j].Score
+	})
+
+	if len(recommendations) > limit {
+		recommendations = recommendations[:limit]
+	}
+
+	for _, rec := range recommendations {
+		excludeSet[rec.Item.ID] = struct{}{}
+	}
+
+	log.Printf("ℹ️ profile-vector recommendations: user_id=%s returned=%d", userID, len(recommendations))
+	return recommendations, nil
+}
+
+// scheduleProfileRebuildIfNeeded triggers an async profile vector rebuild
+// when the interaction type is liked or favorite (the signals that form
+// the profile).
+func scheduleProfileRebuildIfNeeded(ctx context.Context, userID uuid.UUID, interactionType string) {
+	if interactionType != repository.InteractionTypeLiked && interactionType != repository.InteractionTypeFavorite {
+		return
+	}
+
+	go func() {
+		if err := RebuildUserProfileVector(context.Background(), userID); err != nil {
+			log.Printf("⚠️ profile-vector: async rebuild failed for user %s: %v", userID, err)
+		}
+	}()
 }
 
 func buildSimilarityRecommendations(ctx context.Context, sourceItems []recommendationSource, excludeSet map[int64]struct{}, limit int) ([]Recommendation, error) {
