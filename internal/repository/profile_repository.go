@@ -269,6 +269,42 @@ func GetItemEmbeddingsByIDs(ctx context.Context, itemIDs []int64) (map[int64][]f
 	return result, nil
 }
 
+// GetProfileEmbeddingsByUserIDs returns the profile embedding for each of the
+// given user IDs.  Users without a profile embedding are silently omitted.
+func GetProfileEmbeddingsByUserIDs(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID][]float32, error) {
+	result := make(map[uuid.UUID][]float32, len(userIDs))
+	if len(userIDs) == 0 {
+		return result, nil
+	}
+
+	query := `
+		select id, profile_embedding
+		from users
+		where id = any($1)
+		  and profile_embedding is not null
+	`
+
+	rows, err := database.DB.Query(ctx, query, userIDs)
+	if err != nil {
+		return nil, fmt.Errorf("batch get profile embeddings: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var userID uuid.UUID
+		var emb pgvector.Vector
+		if err := rows.Scan(&userID, &emb); err != nil {
+			return nil, fmt.Errorf("scan profile embedding: %w", err)
+		}
+		result[userID] = emb.Slice()
+	}
+	if rows.Err() != nil {
+		return nil, rows.Err()
+	}
+
+	return result, nil
+}
+
 // ItemWithEmbedding is used for returning items together with their embeddings.
 type ItemWithEmbedding struct {
 	Item      models.Item

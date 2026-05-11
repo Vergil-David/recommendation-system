@@ -217,6 +217,12 @@ func GetRecommendations(ctx context.Context, userID uuid.UUID, limit int, offset
 		}
 	}
 
+	// --- Genre diversity re-ranking ---
+	// Ensure no single genre dominates the result list.
+	if len(recommendations) > 0 && !coldStart {
+		recommendations = diversifyRecommendations(recommendations, defaultMaxPerGenre)
+	}
+
 	total := len(recommendations)
 
 	// Apply offset
@@ -274,42 +280,82 @@ func GetFriendRecommendations(ctx context.Context, userID uuid.UUID, limit int) 
 		excludeSet[itemID] = struct{}{}
 	}
 
-	aggregated := make(map[int64]*FriendRecommendation)
+	// --- Compute taste similarity between user and each friend ---
+	// Load profile embeddings for the user and all friends.
+	allUserIDs := make([]uuid.UUID, 0, len(friendIDs)+1)
+	allUserIDs = append(allUserIDs, userID)
+	allUserIDs = append(allUserIDs, friendIDs...)
+
+	profileEmbeddings, profileErr := repository.GetProfileEmbeddingsByUserIDs(ctx, allUserIDs)
+	if profileErr != nil {
+		log.Printf("⚠️ friend recommendations: failed to load profile embeddings (non-fatal): %v", profileErr)
+		profileEmbeddings = nil
+	}
+
+	// Compute cosine similarity between the current user and each friend.
+	friendSimilarities := make(map[uuid.UUID]float64, len(friendIDs))
+	var userProfile []float32
+	if profileEmbeddings != nil {
+		userProfile = profileEmbeddings[userID]
+	}
+	if userProfile != nil {
+		for _, friendID := range friendIDs {
+			friendProfile := profileEmbeddings[friendID]
+			if friendProfile != nil {
+				sim := cosineSimilarity(userProfile, friendProfile)
+				friendSimilarities[friendID] = sim
+			}
+		}
+		log.Printf("ℹ️ friend recommendations: computed taste similarities, user_id=%s friends_with_profile=%d",
+			userID, len(friendSimilarities))
+	}
+
+	// --- Aggregate per-item scores across friends ---
+	type friendItemAggregate struct {
+		Rec   *FriendRecommendation
+		Score float64
+	}
+	aggregated := make(map[int64]*friendItemAggregate)
+
 	for _, positiveItem := range positiveItems {
 		if _, excluded := excludeSet[positiveItem.Item.ID]; excluded {
 			continue
 		}
 
-		recommendation, exists := aggregated[positiveItem.Item.ID]
+		agg, exists := aggregated[positiveItem.Item.ID]
 		if !exists {
-			recommendation = &FriendRecommendation{
-				Item: positiveItem.Item,
+			agg = &friendItemAggregate{
+				Rec: &FriendRecommendation{
+					Item: positiveItem.Item,
+				},
 			}
-			aggregated[positiveItem.Item.ID] = recommendation
+			aggregated[positiveItem.Item.ID] = agg
 		}
 
-		recommendation.FriendCount++
+		agg.Rec.FriendCount++
 		if positiveItem.Liked {
-			recommendation.LikedCount++
+			agg.Rec.LikedCount++
 		}
 		if positiveItem.Favorite {
-			recommendation.FavoriteCount++
+			agg.Rec.FavoriteCount++
 		}
+
+		// Add this friend's weighted contribution.
+		similarity := friendSimilarities[positiveItem.UserID] // 0 if unknown
+		agg.Score += computePerFriendWeightedScore(positiveItem.Liked, positiveItem.Favorite, similarity)
 	}
 
 	recommendations := make([]FriendRecommendation, 0, len(aggregated))
-	for _, recommendation := range aggregated {
-		recommendation.Reason = buildFriendRecommendationReason(recommendation.FriendCount, recommendation.LikedCount, recommendation.FavoriteCount)
-		recommendations = append(recommendations, *recommendation)
+	itemScores := make(map[int64]float64, len(aggregated))
+	for _, agg := range aggregated {
+		agg.Rec.Reason = buildFriendRecommendationReason(agg.Rec.FriendCount, agg.Rec.LikedCount, agg.Rec.FavoriteCount)
+		recommendations = append(recommendations, *agg.Rec)
+		itemScores[agg.Rec.Item.ID] = agg.Score
 	}
 	log.Printf("ℹ️ friend recommendations: aggregated candidates, user_id=%s candidate_count=%d", userID, len(recommendations))
 
-	sort.Slice(recommendations, func(i, j int) bool {
-		if recommendations[i].FriendCount == recommendations[j].FriendCount {
-			return recommendations[i].Item.ID > recommendations[j].Item.ID
-		}
-		return recommendations[i].FriendCount > recommendations[j].FriendCount
-	})
+	// Sort by weighted score (replaces old FriendCount-only sort).
+	sortFriendRecommendationsByScore(recommendations, itemScores)
 
 	if len(recommendations) > limit {
 		recommendations = recommendations[:limit]
