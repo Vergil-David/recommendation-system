@@ -183,6 +183,15 @@ func GetRecommendations(ctx context.Context, userID uuid.UUID, limit int, offset
 		}
 	}
 
+	// --- Genre-based boost ---
+	// Boost candidates from the user's preferred genres before applying penalties.
+	if len(recommendations) > 0 && !coldStart {
+		genreProfile := loadUserGenreProfile(ctx, userID)
+		if !genreProfile.IsEmpty() {
+			ApplyGenreBoost(recommendations, genreProfile)
+		}
+	}
+
 	// --- Negative signal penalty ---
 	// Penalize candidates that are semantically similar to disliked/skipped items.
 	if len(recommendations) > 0 && !coldStart {
@@ -692,3 +701,27 @@ func isInteractionActive(state repository.InteractionState, interactionType stri
 	}
 }
 
+// loadUserGenreProfile fetches the user's liked and favorited items and builds
+// a GenreProfile.  Errors are logged but treated as non-fatal (an empty profile
+// means no genre boost is applied).
+func loadUserGenreProfile(ctx context.Context, userID uuid.UUID) GenreProfile {
+	likedItems, err := repository.GetUserItemsByInteractionType(ctx, userID, repository.InteractionTypeLiked)
+	if err != nil {
+		log.Printf("⚠️ genre boost: failed to load liked items for user %s (non-fatal): %v", userID, err)
+		return GenreProfile{GenreWeights: map[string]float64{}}
+	}
+
+	favoriteItems, err := repository.GetUserItemsByInteractionType(ctx, userID, repository.InteractionTypeFavorite)
+	if err != nil {
+		log.Printf("⚠️ genre boost: failed to load favorite items for user %s (non-fatal): %v", userID, err)
+		return GenreProfile{GenreWeights: map[string]float64{}}
+	}
+
+	profile := BuildGenreProfile(likedItems, favoriteItems)
+	if !profile.IsEmpty() {
+		log.Printf("ℹ️ genre boost: built profile for user %s (genres=%d, liked=%d, favorites=%d)",
+			userID, len(profile.GenreWeights), len(likedItems), len(favoriteItems))
+	}
+
+	return profile
+}
