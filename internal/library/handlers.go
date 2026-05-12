@@ -42,7 +42,7 @@ func GetFavoriteMoviesHandler(c *gin.Context) {
 		return
 	}
 
-	items, err := GetFavoriteMovies(c.Request.Context(), userID)
+	items, err := GetFavoriteMovies(c.Request.Context(), userID, c.Query("type"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "internal server error"})
 		return
@@ -67,7 +67,7 @@ func GetViewedMoviesHandler(c *gin.Context) {
 		return
 	}
 
-	items, err := GetViewedMovies(c.Request.Context(), userID)
+	items, err := GetViewedMovies(c.Request.Context(), userID, c.Query("type"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "internal server error"})
 		return
@@ -92,7 +92,7 @@ func GetLikedMoviesHandler(c *gin.Context) {
 		return
 	}
 
-	items, err := GetLikedMovies(c.Request.Context(), userID)
+	items, err := GetLikedMovies(c.Request.Context(), userID, c.Query("type"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "internal server error"})
 		return

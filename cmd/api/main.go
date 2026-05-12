@@ -13,6 +13,8 @@ import (
 	_ "recommendation-system/docs"
 
 	"recommendation-system/internal/auth"
+	"recommendation-system/internal/books"
+	"recommendation-system/internal/search"
 	"recommendation-system/internal/config"
 	"recommendation-system/internal/database"
 	"recommendation-system/internal/friends"
@@ -90,11 +92,16 @@ func main() {
 	}
 
 	r.GET("/movies", movies.GetMoviesHandler)
+	r.GET("/movies/genres", movies.GetMovieGenresHandler)
 	r.GET("/movies/:id", movies.GetMovieHandler)
+	r.GET("/books", books.GetBooksHandler)
+	r.GET("/books/genres", books.GetBookGenresHandler)
+	r.GET("/books/:id", books.GetBookHandler)
 	r.POST("/interactions", auth.RequireAuth(), recommendations.AddInteractionHandler)
 	r.GET("/interactions/items", auth.RequireAuth(), recommendations.GetInteractionStatesHandler)
 	r.GET("/recommendations", auth.RequireAuth(), recommendations.GetRecommendationsHandler)
 	r.GET("/recommendations/friends", auth.RequireAuth(), recommendations.GetFriendRecommendationsHandler)
+	r.GET("/search", search.SearchHandler)
 	r.GET("/ping", PingHandler)
 
 	handler := middleware.SetupCORS(r, cfg.Server.FrontendURL)

@@ -10,26 +10,26 @@ import (
 	"recommendation-system/internal/repository"
 )
 
-func GetFavoriteMovies(ctx context.Context, userID uuid.UUID) ([]models.Item, error) {
-	items, err := repository.GetUserItemsByInteractionType(ctx, userID, repository.InteractionTypeFavorite)
+func GetFavoriteMovies(ctx context.Context, userID uuid.UUID, itemType string) ([]models.Item, error) {
+	items, err := repository.GetUserItemsByInteractionTypeAndKind(ctx, userID, repository.InteractionTypeFavorite, itemType)
 	if err != nil {
-		return nil, fmt.Errorf("get favorite movies: %w", err)
+		return nil, fmt.Errorf("get favorites: %w", err)
 	}
 	return items, nil
 }
 
-func GetViewedMovies(ctx context.Context, userID uuid.UUID) ([]models.Item, error) {
-	items, err := repository.GetUserItemsByInteractionType(ctx, userID, repository.InteractionTypeViewed)
+func GetViewedMovies(ctx context.Context, userID uuid.UUID, itemType string) ([]models.Item, error) {
+	items, err := repository.GetUserItemsByInteractionTypeAndKind(ctx, userID, repository.InteractionTypeViewed, itemType)
 	if err != nil {
-		return nil, fmt.Errorf("get viewed movies: %w", err)
+		return nil, fmt.Errorf("get viewed: %w", err)
 	}
 	return items, nil
 }
 
-func GetLikedMovies(ctx context.Context, userID uuid.UUID) ([]models.Item, error) {
-	items, err := repository.GetUserItemsByInteractionType(ctx, userID, repository.InteractionTypeLiked)
+func GetLikedMovies(ctx context.Context, userID uuid.UUID, itemType string) ([]models.Item, error) {
+	items, err := repository.GetUserItemsByInteractionTypeAndKind(ctx, userID, repository.InteractionTypeLiked, itemType)
 	if err != nil {
-		return nil, fmt.Errorf("get liked movies: %w", err)
+		return nil, fmt.Errorf("get liked: %w", err)
 	}
 	return items, nil
 }

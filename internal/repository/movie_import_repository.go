@@ -106,21 +106,76 @@ func LinkItemGenre(ctx context.Context, itemID, genreID int64) error {
 }
 
 func GetMovies(ctx context.Context, limit int, offset int) ([]models.Item, int, error) {
-	countQuery := `select count(*) from items where type = 'movie'`
+	return getItemsByType(ctx, "movie", limit, offset, false, "")
+}
 
-	var total int
-	if err := database.DB.QueryRow(ctx, countQuery).Scan(&total); err != nil {
-		return nil, 0, err
+func GetMoviesRandom(ctx context.Context, limit int, offset int) ([]models.Item, int, error) {
+	return getItemsByType(ctx, "movie", limit, offset, true, "")
+}
+
+func GetMoviesByGenre(ctx context.Context, genre string, limit int, offset int, random bool) ([]models.Item, int, error) {
+	return getItemsByType(ctx, "movie", limit, offset, random, genre)
+}
+
+func GetBooksRandom(ctx context.Context, limit int, offset int) ([]models.Item, int, error) {
+	return getItemsByType(ctx, "book", limit, offset, true, "")
+}
+
+func GetBooksByGenre(ctx context.Context, genre string, limit int, offset int, random bool) ([]models.Item, int, error) {
+	return getItemsByType(ctx, "book", limit, offset, random, genre)
+}
+
+func getItemsByType(ctx context.Context, itemType string, limit, offset int, random bool, genre string) ([]models.Item, int, error) {
+	order := `order by i.created_at desc`
+	if random {
+		order = `order by md5(i.id::text)`
 	}
 
-	query := itemSelectProjection + itemSelectFromAndJoins + `
-		where i.type = 'movie'
-		group by i.id
-		order by i.created_at desc
-		limit $1 offset $2
-	`
+	var (
+		total int
+		query string
+		args  []any
+	)
 
-	rows, err := database.DB.Query(ctx, query, limit, offset)
+	if genre != "" {
+		// Count only items that have the requested genre
+		if err := database.DB.QueryRow(ctx, `
+			select count(distinct i.id)
+			from items i
+			join item_genres ig on ig.item_id = i.id
+			join genres g on g.id = ig.genre_id
+			where i.type = $1 and g.name = $2
+		`, itemType, genre).Scan(&total); err != nil {
+			return nil, 0, err
+		}
+
+		query = itemSelectProjection + itemSelectFromAndJoins + `
+			where i.type = $1
+			  and exists (
+				select 1 from item_genres ig2
+				join genres g2 on g2.id = ig2.genre_id
+				where ig2.item_id = i.id and g2.name = $2
+			  )
+			group by i.id
+			` + order + `
+			limit $3 offset $4
+		`
+		args = []any{itemType, genre, limit, offset}
+	} else {
+		if err := database.DB.QueryRow(ctx, `select count(*) from items where type = $1`, itemType).Scan(&total); err != nil {
+			return nil, 0, err
+		}
+
+		query = itemSelectProjection + itemSelectFromAndJoins + `
+			where i.type = $1
+			group by i.id
+			` + order + `
+			limit $2 offset $3
+		`
+		args = []any{itemType, limit, offset}
+	}
+
+	rows, err := database.DB.Query(ctx, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}

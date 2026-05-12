@@ -216,9 +216,20 @@ func GetUserInteractionStates(ctx context.Context, userID uuid.UUID, itemIDs []i
 }
 
 func GetUserItemsByInteractionType(ctx context.Context, userID uuid.UUID, interactionType string) ([]models.Item, error) {
+	return GetUserItemsByInteractionTypeAndKind(ctx, userID, interactionType, "")
+}
+
+func GetUserItemsByInteractionTypeAndKind(ctx context.Context, userID uuid.UUID, interactionType string, itemType string) ([]models.Item, error) {
 	stateColumn, err := interactionStateColumn(interactionType)
 	if err != nil {
 		return nil, err
+	}
+
+	typeFilter := ""
+	args := []any{userID}
+	if itemType != "" {
+		typeFilter = " and i.type = $2"
+		args = append(args, itemType)
 	}
 
 	query := itemSelectProjection + `
@@ -228,11 +239,12 @@ func GetUserItemsByInteractionType(ctx context.Context, userID uuid.UUID, intera
 		left join genres g on g.id = ig.genre_id
 		where x.user_id = $1
 		  and x.` + stateColumn + ` = true
+		` + typeFilter + `
 		group by i.id, x.updated_at
 		order by x.updated_at desc nulls last, i.id desc
 	`
 
-	rows, err := database.DB.Query(ctx, query, userID)
+	rows, err := database.DB.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

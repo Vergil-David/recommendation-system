@@ -8,6 +8,7 @@ import (
 	"recommendation-system/internal/repository"
 )
 
+
 const (
 	defaultPage  = 1
 	defaultLimit = 20
@@ -33,7 +34,7 @@ type GetMovieResult struct {
 	Metadata    map[string]any
 }
 
-func ListMovies(ctx context.Context, page int, limit int) (*ListMoviesResult, error) {
+func ListMovies(ctx context.Context, page int, limit int, random bool, genre string) (*ListMoviesResult, error) {
 	if page < 0 || limit < 0 {
 		return nil, ErrInvalidPagination
 	}
@@ -52,7 +53,19 @@ func ListMovies(ctx context.Context, page int, limit int) (*ListMoviesResult, er
 	}
 
 	offset := (page - 1) * limit
-	items, total, err := repository.GetMovies(ctx, limit, offset)
+
+	var (
+		items []models.Item
+		total int
+		err   error
+	)
+	if genre != "" {
+		items, total, err = repository.GetMoviesByGenre(ctx, genre, limit, offset, random)
+	} else if random {
+		items, total, err = repository.GetMoviesRandom(ctx, limit, offset)
+	} else {
+		items, total, err = repository.GetMovies(ctx, limit, offset)
+	}
 	if err != nil {
 		return nil, err
 	}

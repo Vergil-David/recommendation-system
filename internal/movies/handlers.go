@@ -63,7 +63,9 @@ func GetMoviesHandler(c *gin.Context) {
 		return
 	}
 
-	result, err := ListMovies(c.Request.Context(), page, limit)
+	random := c.Query("sort") == "random"
+	genre := c.Query("genre")
+	result, err := ListMovies(c.Request.Context(), page, limit, random, genre)
 	if err != nil {
 		if errors.Is(err, ErrInvalidPagination) {
 			c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
@@ -91,6 +93,26 @@ func GetMoviesHandler(c *gin.Context) {
 		Page:  result.Page,
 		Limit: result.Limit,
 	})
+}
+
+// GetMovieGenresHandler godoc
+// @Summary      Жанри фільмів
+// @Description  Повертає всі жанри для фільмів, відсортовані за кількістю.
+// @Tags         movies
+// @Produce      json
+// @Success      200  {object}  map[string][]string
+// @Router       /movies/genres [get]
+func GetMovieGenresHandler(c *gin.Context) {
+	genres, err := repository.GetItemGenres(c.Request.Context(), "movie", 2)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "internal server error"})
+		return
+	}
+	names := make([]string, 0, len(genres))
+	for _, g := range genres {
+		names = append(names, g.Name)
+	}
+	c.JSON(http.StatusOK, gin.H{"genres": names})
 }
 
 // GetMovieHandler godoc
