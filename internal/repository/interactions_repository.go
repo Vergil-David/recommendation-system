@@ -272,10 +272,7 @@ func GetUserExcludedItemIDs(ctx context.Context, userID uuid.UUID) ([]int64, err
 		where user_id = $1
 		  and item_id is not null
 		  and (
-			coalesce(viewed, false)
-			or coalesce(liked, false)
-			or coalesce(disliked, false)
-			or coalesce(favorite, false)
+			coalesce(disliked, false)
 			or coalesce(skipped, false)
 		  )
 	`

@@ -101,7 +101,6 @@ func (c *Client) DiscoverUkrainianMovies(ctx context.Context, page int) (*Discov
 	q := endpoint.Query()
 	q.Set("api_key", c.apiKey)
 	q.Set("with_origin_country", "UA")
-	q.Set("with_original_language", "uk")
 	q.Set("include_adult", "false")
 	q.Set("sort_by", "popularity.desc")
 	q.Set("page", strconv.Itoa(page))
