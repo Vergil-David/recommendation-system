@@ -1,17 +1,19 @@
 {
+    "schemes": [
+        "http"
+    ],
     "swagger": "2.0",
     "info": {
-        "description": "API сервер для курсової роботи з рекомендаційною системою.",
+        "description": "API для реєстрації, автентифікації та базових сервісів системи рекомендацій.",
         "title": "Book Recommendation System API",
         "contact": {},
         "version": "1.0"
     },
-    "host": "localhost:8080",
     "basePath": "/",
     "paths": {
-        "/ping": {
-            "get": {
-                "description": "Повертає pong, якщо сервер живий",
+        "/auth/login": {
+            "post": {
+                "description": "Перевіряє email/пароль та повертає JWT токен і профіль користувача.",
                 "consumes": [
                     "application/json"
                 ],
@@ -19,25 +21,363 @@
                     "application/json"
                 ],
                 "tags": [
-                    "system"
+                    "auth"
                 ],
-                "summary": "Перевірка здоров'я сервера",
+                "summary": "Вхід користувача",
+                "parameters": [
+                    {
+                        "description": "Дані для входу",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.LoginRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "Успішний вхід",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/auth.AuthResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Невірні дані запиту",
+                        "schema": {
+                            "$ref": "#/definitions/auth.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Невірні облікові дані",
+                        "schema": {
+                            "$ref": "#/definitions/auth.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Користувач не активний",
+                        "schema": {
+                            "$ref": "#/definitions/auth.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Серверна помилка",
+                        "schema": {
+                            "$ref": "#/definitions/auth.ErrorResponse"
                         }
                     }
                 }
             }
         },
-        "/recommend/vector": {
+        "/auth/register": {
+            "post": {
+                "description": "Створює новий акаунт користувача з email, username та паролем.\nПовертає JWT токен та профіль користувача.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Реєстрація нового користувача",
+                "parameters": [
+                    {
+                        "description": "Дані для реєстрації",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.RegisterRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Користувача створено",
+                        "schema": {
+                            "$ref": "#/definitions/auth.AuthResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Невірні дані запиту або бізнес-правила",
+                        "schema": {
+                            "$ref": "#/definitions/auth.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Email або username вже зайняті",
+                        "schema": {
+                            "$ref": "#/definitions/auth.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Серверна помилка",
+                        "schema": {
+                            "$ref": "#/definitions/auth.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/friends": {
             "get": {
-                "description": "Повертає список книг на основі схожості описів",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Повертає список користувачів зі статусом accepted для поточного користувача.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "Список друзів користувача",
+                "responses": {
+                    "200": {
+                        "description": "Список друзів",
+                        "schema": {
+                            "$ref": "#/definitions/friends.FriendsListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/friends/requests": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Створює новий запит у друзі зі статусом pending.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "Надіслати запит у друзі",
+                "parameters": [
+                    {
+                        "description": "Цільовий користувач",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/friends.SendFriendRequestRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Запит надіслано",
+                        "schema": {
+                            "$ref": "#/definitions/friends.SendFriendRequestResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Невірні дані або спроба додати себе",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Користувача не знайдено",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Запит уже існує",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/friends/requests/incoming": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Повертає pending-запити, які поточний користувач може прийняти або відхилити.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "Вхідні запити у друзі",
+                "responses": {
+                    "200": {
+                        "description": "Список вхідних запитів",
+                        "schema": {
+                            "$ref": "#/definitions/friends.IncomingFriendRequestsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/friends/requests/outgoing": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Повертає pending-запити, які поточний користувач уже відправив.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "Вихідні запити у друзі",
+                "responses": {
+                    "200": {
+                        "description": "Список вихідних запитів",
+                        "schema": {
+                            "$ref": "#/definitions/friends.OutgoingFriendRequestsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/friends/requests/respond": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Дозволяє отримувачу запиту прийняти або відхилити pending-запит.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "friends"
+                ],
+                "summary": "Відповісти на запит у друзі",
+                "parameters": [
+                    {
+                        "description": "Користувач-відправник і дія",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/friends.RespondFriendRequestRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Новий статус запиту",
+                        "schema": {
+                            "$ref": "#/definitions/friends.FriendRequestStatusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Невірні дані або дія",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Запит не знайдено",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Запит не в pending статусі",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/friends.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/interactions": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Зберігає viewed, liked, disliked, favorite або skipped для поточного користувача. Legacy-значення view, like і skip також приймаються.",
                 "consumes": [
                     "application/json"
                 ],
@@ -47,17 +387,1048 @@
                 "tags": [
                     "recommendations"
                 ],
-                "summary": "Векторні рекомендації",
+                "summary": "Записати взаємодію з елементом",
+                "parameters": [
+                    {
+                        "description": "Взаємодія користувача",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/recommendations.AddInteractionRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/recommendations.AddInteractionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Невірний запит або interaction type",
+                        "schema": {
+                            "$ref": "#/definitions/recommendations.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/recommendations.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Елемент не знайдено",
+                        "schema": {
+                            "$ref": "#/definitions/recommendations.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/recommendations.ErrorResponse"
                         }
                     }
                 }
             }
+        },
+        "/interactions/items": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Повертає поточні стани viewed, liked, disliked, favorite і skipped для переданих item_id.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "recommendations"
+                ],
+                "summary": "Отримати стани взаємодій для списку елементів",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "CSV список item_id, наприклад 1,2,3",
+                        "name": "ids",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/recommendations.GetInteractionStatesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Невірні query-параметри",
+                        "schema": {
+                            "$ref": "#/definitions/recommendations.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/recommendations.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/recommendations.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/library/favorites": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Повертає фільми поточного користувача зі станом favorite.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "library"
+                ],
+                "summary": "Улюблені фільми користувача",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/library.GetLibraryMoviesResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/library.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/library.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/library/liked": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Повертає фільми поточного користувача зі станом liked.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "library"
+                ],
+                "summary": "Лайкнуті фільми користувача",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/library.GetLibraryMoviesResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/library.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/library.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/library/viewed": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Повертає фільми поточного користувача зі станом viewed.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "library"
+                ],
+                "summary": "Переглянуті фільми користувача",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/library.GetLibraryMoviesResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/library.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/library.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/movies": {
+            "get": {
+                "description": "Повертає список фільмів з пагінацією.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "movies"
+                ],
+                "summary": "Список фільмів",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Номер сторінки (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Ліміт на сторінку (default 20, max 50)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/movies.GetMoviesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Некоректні query-параметри",
+                        "schema": {
+                            "$ref": "#/definitions/movies.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Помилка бази даних",
+                        "schema": {
+                            "$ref": "#/definitions/movies.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/ping": {
+            "get": {
+                "description": "Повертає \"pong\" якщо сервіс працює.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Перевірка доступності сервісу",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/main.PingResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/recommendations": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Повертає рекомендації на основі liked/favorite сигналів і pgvector similarity з fallback на популярні або нові фільми.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "recommendations"
+                ],
+                "summary": "Отримати персональні рекомендації",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Ліміт рекомендацій (default 20, max 50)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/recommendations.GetRecommendationsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Невірні query-параметри",
+                        "schema": {
+                            "$ref": "#/definitions/recommendations.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/recommendations.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/recommendations.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/recommendations/friends": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Повертає фільми, які accepted friends поточного користувача лайкнули або зберегли у favorite, відсортовані за силою social signal.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "recommendations"
+                ],
+                "summary": "Отримати friend-based рекомендації",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Ліміт рекомендацій (default 20, max 50)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/recommendations.GetFriendRecommendationsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Невірні query-параметри",
+                        "schema": {
+                            "$ref": "#/definitions/recommendations.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/recommendations.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/recommendations.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/users/me": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Повертає профіль поточного авторизованого користувача.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Поточний профіль користувача",
+                "responses": {
+                    "200": {
+                        "description": "Профіль користувача",
+                        "schema": {
+                            "$ref": "#/definitions/users.MeResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Токен невалідний або користувача не знайдено",
+                        "schema": {
+                            "$ref": "#/definitions/users.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Користувач неактивний",
+                        "schema": {
+                            "$ref": "#/definitions/users.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/users.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/users/search": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Шукає користувачів по username, display_name або email і повертає relation_status відносно поточного користувача.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Пошук користувачів",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Пошуковий запит",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Максимальна кількість результатів",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Список знайдених користувачів",
+                        "schema": {
+                            "$ref": "#/definitions/users.SearchUsersResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Невірний або порожній запит",
+                        "schema": {
+                            "$ref": "#/definitions/users.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Неавторизовано",
+                        "schema": {
+                            "$ref": "#/definitions/users.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Внутрішня помилка сервера",
+                        "schema": {
+                            "$ref": "#/definitions/users.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "auth.AuthResponse": {
+            "type": "object",
+            "properties": {
+                "token": {
+                    "type": "string",
+                    "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                },
+                "user": {
+                    "$ref": "#/definitions/models.User"
+                }
+            }
+        },
+        "auth.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "invalid request"
+                }
+            }
+        },
+        "auth.LoginRequest": {
+            "type": "object",
+            "required": [
+                "email",
+                "password"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "format": "email",
+                    "example": "user@example.com"
+                },
+                "password": {
+                    "type": "string",
+                    "example": "secret123"
+                }
+            }
+        },
+        "auth.RegisterRequest": {
+            "type": "object",
+            "required": [
+                "email",
+                "password",
+                "username"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "format": "email",
+                    "example": "user@example.com"
+                },
+                "password": {
+                    "type": "string",
+                    "minLength": 6,
+                    "example": "secret123"
+                },
+                "username": {
+                    "type": "string",
+                    "example": "johndoe"
+                }
+            }
+        },
+        "friends.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "invalid request"
+                }
+            }
+        },
+        "friends.FriendRequestStatusResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "example": "accepted"
+                }
+            }
+        },
+        "friends.FriendsListResponse": {
+            "type": "object",
+            "properties": {
+                "friends": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.User"
+                    }
+                }
+            }
+        },
+        "friends.IncomingFriendRequestsResponse": {
+            "type": "object",
+            "properties": {
+                "requests": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.IncomingFriendRequest"
+                    }
+                }
+            }
+        },
+        "friends.OutgoingFriendRequestsResponse": {
+            "type": "object",
+            "properties": {
+                "requests": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.OutgoingFriendRequest"
+                    }
+                }
+            }
+        },
+        "friends.RespondFriendRequestRequest": {
+            "type": "object",
+            "required": [
+                "action",
+                "from_user_id"
+            ],
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "example": "accept"
+                },
+                "from_user_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                }
+            }
+        },
+        "friends.SendFriendRequestRequest": {
+            "type": "object",
+            "required": [
+                "to_user_id"
+            ],
+            "properties": {
+                "to_user_id": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                }
+            }
+        },
+        "friends.SendFriendRequestResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "example": "pending"
+                }
+            }
+        },
+        "library.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "unauthorized"
+                }
+            }
+        },
+        "library.GetLibraryMoviesResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/library.MovieItemResponse"
+                    }
+                }
+            }
+        },
+        "library.MovieItemResponse": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "image_url": {
+                    "type": "string"
+                },
+                "release_year": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "main.PingResponse": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "example": "pong"
+                }
+            }
+        },
+        "models.IncomingFriendRequest": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "from_user": {
+                    "$ref": "#/definitions/models.PublicUser"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "pending"
+                }
+            }
+        },
+        "models.OutgoingFriendRequest": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "pending"
+                },
+                "to_user": {
+                    "$ref": "#/definitions/models.PublicUser"
+                }
+            }
+        },
+        "models.PublicUser": {
+            "type": "object",
+            "properties": {
+                "avatar_url": {
+                    "type": "string",
+                    "example": "https://cdn.example.com/avatars/johndoe.png"
+                },
+                "display_name": {
+                    "type": "string",
+                    "example": "John Doe"
+                },
+                "email": {
+                    "type": "string",
+                    "format": "email",
+                    "example": "user@example.com"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                },
+                "username": {
+                    "type": "string",
+                    "example": "johndoe"
+                }
+            }
+        },
+        "models.User": {
+            "type": "object",
+            "properties": {
+                "avatar_url": {
+                    "type": "string",
+                    "example": "https://cdn.example.com/avatars/johndoe.png"
+                },
+                "bio": {
+                    "type": "string",
+                    "example": "Book lover and sci-fi fan."
+                },
+                "created_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "display_name": {
+                    "type": "string",
+                    "example": "John Doe"
+                },
+                "email": {
+                    "type": "string",
+                    "format": "email",
+                    "example": "user@example.com"
+                },
+                "email_verified": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "id": {
+                    "type": "string",
+                    "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                },
+                "is_active": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "last_login_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "role": {
+                    "type": "string",
+                    "example": "user"
+                },
+                "updated_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "username": {
+                    "type": "string",
+                    "example": "johndoe"
+                }
+            }
+        },
+        "models.UserSearchResult": {
+            "type": "object",
+            "properties": {
+                "avatar_url": {
+                    "type": "string",
+                    "example": "https://cdn.example.com/avatars/johndoe.png"
+                },
+                "display_name": {
+                    "type": "string",
+                    "example": "John Doe"
+                },
+                "email": {
+                    "type": "string",
+                    "format": "email",
+                    "example": "user@example.com"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                },
+                "relation_status": {
+                    "type": "string",
+                    "example": "none"
+                },
+                "username": {
+                    "type": "string",
+                    "example": "johndoe"
+                }
+            }
+        },
+        "movies.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "invalid query parameters"
+                }
+            }
+        },
+        "movies.GetMoviesResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/movies.MovieItemResponse"
+                    }
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "movies.MovieItemResponse": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "image_url": {
+                    "type": "string"
+                },
+                "release_year": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "recommendations.AddInteractionRequest": {
+            "type": "object",
+            "required": [
+                "item_id",
+                "type"
+            ],
+            "properties": {
+                "item_id": {
+                    "type": "integer",
+                    "example": 306
+                },
+                "type": {
+                    "type": "string",
+                    "example": "liked"
+                }
+            }
+        },
+        "recommendations.AddInteractionResponse": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "example": "recorded"
+                }
+            }
+        },
+        "recommendations.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "invalid request"
+                }
+            }
+        },
+        "recommendations.FriendRecommendationItemResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "reason": {
+                    "type": "string",
+                    "example": "Liked by 3 of your friends"
+                },
+                "score": {
+                    "type": "integer",
+                    "example": 3
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "recommendations.GetFriendRecommendationsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/recommendations.FriendRecommendationItemResponse"
+                    }
+                }
+            }
+        },
+        "recommendations.GetInteractionStatesResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/recommendations.InteractionStateResponse"
+                    }
+                }
+            }
+        },
+        "recommendations.GetRecommendationsResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/recommendations.RecommendationItemResponse"
+                    }
+                }
+            }
+        },
+        "recommendations.InteractionStateResponse": {
+            "type": "object",
+            "properties": {
+                "disliked": {
+                    "type": "boolean"
+                },
+                "favorite": {
+                    "type": "boolean"
+                },
+                "liked": {
+                    "type": "boolean"
+                },
+                "skipped": {
+                    "type": "boolean"
+                },
+                "viewed": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "recommendations.RecommendationItemResponse": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "image_url": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string",
+                    "example": "Because you liked similar Ukrainian movies"
+                },
+                "release_year": {
+                    "type": "integer"
+                },
+                "score": {
+                    "type": "number",
+                    "example": 0.91
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "users.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "unauthorized"
+                }
+            }
+        },
+        "users.MeResponse": {
+            "type": "object",
+            "properties": {
+                "user": {
+                    "$ref": "#/definitions/models.User"
+                }
+            }
+        },
+        "users.SearchUsersResponse": {
+            "type": "object",
+            "properties": {
+                "users": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.UserSearchResult"
+                    }
+                }
+            }
+        }
+    },
+    "securityDefinitions": {
+        "BearerAuth": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
         }
     }
 }

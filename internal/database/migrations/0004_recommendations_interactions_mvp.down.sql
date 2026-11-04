@@ -1,0 +1,3 @@
+-- Intentionally left as a no-op.
+-- This migration is additive and targets a shared legacy interactions table.
+-- Rolling it back destructively could remove production data or columns used by newer code.

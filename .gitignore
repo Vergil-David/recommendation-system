@@ -1,0 +1,23 @@
+# Secrets and local env
+.env
+env
+*.token
+
+# Build artifacts
+main
+main.exe
+*.exe
+*.exe~
+*.out
+
+# Runtime files
+*.log
+*.pid
+.gocache/
+.gocache-local/
+
+# Local debug / ad-hoc files
+register-response.json
+
+# System files
+.DS_Store

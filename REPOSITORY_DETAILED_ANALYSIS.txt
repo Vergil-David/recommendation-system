@@ -1,0 +1,677 @@
+Детальний розбір репозиторію recommendation-system
+==================================================
+
+1) Що це за проєкт
+------------------
+Це backend-сервіс на Go, який зараз реалізує:
+- запуск HTTP API на Gin;
+- реєстрацію користувача;
+- логін користувача;
+- видачу JWT токена;
+- профіль поточного користувача і пошук користувачів для Friends page;
+- production-ready базову friends-систему: список друзів, incoming/outgoing requests, accept/reject;
+- підключення до PostgreSQL (через pgx pool);
+- Swagger-документацію;
+- заготовку під рекомендації на основі векторної схожості (pgvector).
+
+Важливо: назва "recommendation-system" ширша, ніж поточна реалізація. Зараз у коді повністю робочий auth-модуль, а recommendation-частина тільки частково підготовлена (є модель Item і пошук схожих елементів у репозиторії, але немає HTTP handler/service для цього).
+
+
+2) Карта структури проєкту
+--------------------------
+cmd/
+  api/
+    main.go                     -> точка входу програми
+  migrate/
+    main.go                     -> CLI для міграцій (up/down/version)
+
+docs/
+  docs.go                       -> згенерований swagger-код (swag)
+  swagger.yaml                  -> OpenAPI/Swagger опис
+  swagger.json                  -> OpenAPI/Swagger опис
+
+internal/
+  auth/
+    handlers.go                 -> HTTP-обробники /auth/*
+    middleware.go               -> JWT middleware (Bearer, Parse, userID/role у context)
+    service.go                  -> бізнес-логіка auth
+  friends/
+    handlers.go                 -> HTTP-обробники GET /friends, friend requests incoming/outgoing/send/respond
+    service.go                  -> бізнес-логіка friend requests (list/search-support/send/respond)
+  config/
+    config.go                   -> читання env-конфігурації
+  database/
+    db.go                       -> ініціалізація pgxpool + schema introspection
+    migrations/
+      0001_upgrade_users.up.sql   -> idempotent upgrade існуючої users
+      0001_upgrade_users.down.sql -> best-effort rollback users upgrade
+      0002_friendships_constraints.up.sql   -> обмеження статусів/унікальності/індекси friendships
+      0002_friendships_constraints.down.sql -> best-effort rollback для constraints/indexes friendships
+      0003_friend_requests_lists.up.sql     -> timestamps/indexes для friends lists + user search indexes
+      0003_friend_requests_lists.down.sql   -> best-effort rollback нових індексів/trigger
+  models/
+    user.go                     -> модель User
+    friendship.go               -> DTO для публічних user search/friend request responses
+    item.go                     -> модель Item (для рекомендацій)
+  repository/
+    user_repository.go          -> SQL-операції з users
+    item_repo.go                -> SQL-пошук схожих items за embedding
+    friendships_repository.go   -> SQL-операції для friend requests, incoming/outgoing lists, search relation_status
+  security/
+    claims.go                   -> JWT claims
+    jwt.go                      -> генерація/парсинг JWT
+    password.go                 -> hash/verify паролів через bcrypt
+  users/
+    handlers.go                 -> HTTP-обробники GET /users/me і GET /users/search
+    service.go                  -> бізнес-логіка профілю current user і user search validation
+
+Файли кореня:
+- go.mod, go.sum               -> залежності і версія Go
+- .gitignore                   -> ігнор секретів/бінарників
+- env, .env                    -> змінні оточення (секрети; комітити не можна)
+- .env.example                 -> безпечний шаблон змінних середовища
+
+
+3) Які технології тут використовуються і навіщо
+-----------------------------------------------
+- Go 1.24: основна мова.
+- Gin: HTTP router/web framework.
+- pgx/pgxpool: робота з PostgreSQL + пул з'єднань.
+- PostgreSQL + pgcrypto + citext: база, UUID генерація, case-insensitive текст.
+- pgvector-go: передача vector-типу для similarity search.
+- bcrypt (golang.org/x/crypto): безпечне хешування паролів.
+- JWT (golang-jwt/jwt/v5): токени авторизації.
+- swaggo/gin-swagger: автогенерація та UI документації API.
+- godotenv: підвантаження .env у локальному середовищі.
+
+
+4) Повний життєвий цикл запуску сервера
+---------------------------------------
+Файл: cmd/api/main.go
+
+Порядок:
+1. config.Load() читає env.
+2. Логується migrations URL у маскованому вигляді (без пароля).
+3. database.InitDB(cfg.Database.URL) створює пул БД, робить ping.
+4. auth.Init(security.NewJWTService(...)) передає в auth-сервіс JWT-провайдер.
+5. Створюється Gin router.
+5.1 Встановлюються trusted proxies: `r.SetTrustedProxies(nil)` (безпечний дефолт без довірених proxy).
+6. Реєструються маршрути:
+   - GET /swagger/*any
+   - POST /auth/register
+   - POST /auth/login
+   - GET /users/me (protected)
+   - GET /users/search (protected)
+   - GET /friends (protected)
+   - POST /friends/requests (protected)
+   - GET /friends/requests/incoming (protected)
+   - GET /friends/requests/outgoing (protected)
+   - POST /friends/requests/respond (protected)
+   - GET /ping
+7. r.Run(":<port>") запускає HTTP-сервер.
+
+Ключова ідея: main.go тільки "склеює" модулі (composition root), а не містить бізнес-логіку.
+
+
+5) Як працює реєстрація (end-to-end)
+------------------------------------
+Ланцюг викликів:
+HTTP -> internal/auth/handlers.go:RegisterHandler ->
+internal/auth/service.go:Register ->
+internal/security/password.go:HashPassword ->
+internal/repository/user_repository.go:CreateUser ->
+PostgreSQL.
+
+Покроково:
+1. Handler читає JSON у RegisterRequest через ShouldBindJSON.
+2. Викликає Register(ctx, email, username, password).
+3. Service перевіряє довжину пароля (мінімум 8).
+4. Service хешує пароль bcrypt'ом.
+5. Service створює models.User і передає в repository.CreateUser.
+6. Repository виконує INSERT у users і повертає id.
+7. Service генерує JWT токен через JWTService.Generate(userID, role).
+8. Handler повертає 201 + JSON {token, user}.
+
+Обробка помилок:
+- duplicate email/username (Postgres code 23505) -> 409 Conflict;
+- поганий запит -> 400;
+- не налаштований JWT -> 500;
+- інші -> 400 (на рівні handler).
+
+
+6) Як працює логін (end-to-end)
+-------------------------------
+Ланцюг:
+HTTP -> LoginHandler ->
+service.Login ->
+repository.GetUserByEmail ->
+security.CheckPassword ->
+repository.UpdateLastLogin ->
+JWTService.Generate.
+
+Покроково:
+1. Handler читає LoginRequest.
+2. Service дістає користувача за email.
+3. Перевіряє is_active.
+4. Порівнює пароль з hash через bcrypt.CompareHashAndPassword.
+5. Оновлює last_login_at (якщо така колонка існує).
+6. Генерує JWT.
+7. Віддає 200 + {token, user}.
+
+Статуси:
+- 401 при некоректних credentials;
+- 403 якщо user inactive;
+- 500 якщо JWT не конфігурований;
+- 400 для інших помилок.
+
+
+6.1) Як працює відправка friend request (end-to-end)
+-----------------------------------------------------
+Ланцюг:
+HTTP -> internal/friends/handlers.go:SendFriendRequestHandler ->
+internal/friends/service.go:SendFriendRequest ->
+internal/repository/user_repository.go:GetUserByID ->
+internal/repository/friendships_repository.go:GetFriendshipStatus/CreateFriendRequest/UpdateFriendRequestStatus ->
+PostgreSQL.
+
+Маршрут захищений middleware `auth.RequireAuth()` і вимагає Bearer token.
+
+Покроково:
+1. Handler перевіряє JWT-контекст, читає `to_user_id` з JSON і парсить UUID.
+2. Service блокує self-request (from == to).
+3. Service перевіряє, що target user існує.
+4. Service перевіряє наявні записи в обох напрямках `from->to` і `to->from`:
+   - будь-який `accepted` -> conflict, бо користувачі вже друзі;
+   - будь-який `pending` -> conflict, щоб не створювати дублікати або cross-pending заявки;
+   - власний попередній `rejected` -> перевід у `pending` через update;
+   - відсутній запис -> insert нового `pending`.
+5. Handler повертає 201 + `{ "status": "pending" }`.
+
+
+6.2) Як працює accept/reject friend request (end-to-end)
+---------------------------------------------------------
+Ланцюг:
+HTTP -> internal/friends/handlers.go:RespondToFriendRequestHandler ->
+internal/friends/service.go:RespondToFriendRequest ->
+internal/repository/friendships_repository.go:GetFriendshipStatus/UpdateFriendRequestStatus/EnsureAcceptedMirror ->
+PostgreSQL.
+
+Маршрут захищений middleware `auth.RequireAuth()` і вимагає Bearer token.
+
+Покроково:
+1. Handler дістає `receiverID` з auth context (`userID`), читає JSON `{from_user_id, action}`.
+2. Endpoint шукає тільки напрямлений запит `friendships(from_user_id -> receiverID_з_token)`; відповісти може лише receiver з токена.
+3. Service валідовує `action` (`accept` або `reject`) і sanity-check: `from_user_id != receiverID`.
+4. Окремого `GetUserByID` lookup немає; існування запиту визначається наявністю рядка в `friendships` (з FK на users).
+5. Service перевіряє, що поточний статус запиту саме `pending`.
+6. Якщо `accept`:
+   - оновлює поточний рядок на `accepted`;
+   - гарантує mirror-рядок `receiver->requester` зі статусом `accepted` через upsert (`ON CONFLICT DO UPDATE`), щоб старий reverse `rejected` або legacy reverse `pending` не ламав `GET /friends`.
+7. Якщо `reject`:
+   - оновлює статус на `rejected`.
+8. Handler повертає 200 + `{ "status": "accepted" }` або `{ "status": "rejected" }`.
+
+
+6.3) Як працює отримання списку друзів (end-to-end)
+----------------------------------------------------
+Ланцюг:
+HTTP -> internal/friends/handlers.go:GetFriendsHandler ->
+internal/friends/service.go:GetFriends ->
+internal/repository/friendships_repository.go:ListAcceptedFriendIDs ->
+internal/repository/user_repository.go:GetUsersByIDs ->
+PostgreSQL.
+
+Маршрут захищений middleware `auth.RequireAuth()` і вимагає Bearer token.
+
+Покроково:
+1. Handler дістає поточний `userID` з auth context.
+2. Service запитує `friend_id` зі `friendships` для `user_id=currentUser` і `status='accepted'`.
+3. Service завантажує профілі друзів одним запитом `users where id = any($1)`.
+4. Handler повертає 200 + `{ "friends": [...] }`.
+
+Примітка:
+- Простий запит на список друзів працює завдяки mirror-рядку `accepted`, який створюється під час `accept`.
+
+
+6.4) Як працює пошук користувачів для додавання друзів
+------------------------------------------------------
+Ланцюг:
+HTTP -> internal/users/handlers.go:SearchUsersHandler ->
+internal/users/service.go:SearchUsers ->
+internal/repository/friendships_repository.go:SearchUsersWithFriendshipStatus ->
+PostgreSQL.
+
+Маршрут: `GET /users/search?q=<query>&limit=<n>` захищений middleware `auth.RequireAuth()`.
+
+Поведінка:
+1. Handler дістає current user id з JWT context і читає query params `q` та `limit`.
+2. Service trim-ить `q`, не дозволяє порожній search query, ставить default limit 20 і max limit 50.
+3. Repository шукає по `username`, `display_name`, `email` case-insensitive.
+4. Поточний користувач не повертається.
+5. У відповіді немає `password_hash`; повертаються тільки поля `id`, `email`, `username`, `display_name`, `avatar_url`, `relation_status`.
+6. `relation_status` рахується відносно current user:
+   - `friends`, якщо є accepted-зв'язок у будь-якому напрямку;
+   - `pending_sent`, якщо current user уже відправив pending request;
+   - `pending_received`, якщо current user має pending request від знайденого user;
+   - `none`, якщо активного зв'язку немає або попередній request був rejected.
+
+Приклад:
+`GET /users/search?q=ann&limit=20` -> `{ "users": [{ "id": "...", "email": "...", "username": "anna", "relation_status": "none" }] }`.
+
+
+6.5) Як працюють incoming/outgoing friend requests
+---------------------------------------------------
+Incoming:
+HTTP -> internal/friends/handlers.go:ListIncomingFriendRequestsHandler ->
+internal/friends/service.go:ListIncomingFriendRequests ->
+internal/repository/friendships_repository.go:ListIncomingFriendRequests ->
+PostgreSQL.
+
+`GET /friends/requests/incoming` повертає pending-заявки, де `friendships.friend_id = currentUserID`.
+Формат: `{ "requests": [{ "from_user": { "id": "...", "username": "...", "display_name": "...", "avatar_url": "..." }, "status": "pending", "created_at": "..." }] }`.
+
+Outgoing:
+HTTP -> internal/friends/handlers.go:ListOutgoingFriendRequestsHandler ->
+internal/friends/service.go:ListOutgoingFriendRequests ->
+internal/repository/friendships_repository.go:ListOutgoingFriendRequests ->
+PostgreSQL.
+
+`GET /friends/requests/outgoing` повертає pending-заявки, де `friendships.user_id = currentUserID`.
+Формат: `{ "requests": [{ "to_user": { "id": "...", "username": "...", "display_name": "...", "avatar_url": "..." }, "status": "pending", "created_at": "..." }] }`.
+
+
+7) Детальний розбір кожного файлу
+---------------------------------
+
+7.1 cmd/api/main.go
+- Призначення: точка входу.
+- Що важливо:
+  - імпортує `_ "recommendation-system/docs"` для реєстрації swagger-метаданих через init().
+  - має swagger-коментарі для заголовка API.
+  - після `gin.Default()` явно вимикає trusted proxies через `SetTrustedProxies(nil)` для безпечнішої обробки клієнтського IP.
+  - PingHandler повертає health-check.
+- Зв'язки:
+  - залежить від config, database, auth, security.
+  - викликає тільки публічні API цих пакетів.
+
+7.2 internal/config/config.go
+- Призначення: централізоване читання конфігурації.
+- Структури:
+  - Config, ServerConfig, DatabaseConfig, JWTConfig.
+- Функції:
+  - Load() читає .env (якщо є), будує Config.
+  - mustEnv() валить процес, якщо ключ не заданий.
+  - getEnv() повертає default.
+  - mustDuration() парсить duration типу "1h".
+- Логіка DB URL:
+  - `Database.URL` <- обов'язковий `DATABASE_URL` (runtime, зазвичай pooler).
+  - `Database.MigrationsURL` <- опційний `MIGRATIONS_DATABASE_URL` (бажано direct, але може бути pooler).
+  - якщо `MIGRATIONS_DATABASE_URL` порожній, береться fallback: `Database.MigrationsURL = Database.URL`.
+- Зв'язки:
+  - використовується лише в main.go.
+- Обов'язкові env:
+  - DATABASE_URL
+  - JWT_SECRET
+  - JWT_EXPIRES_IN (має default 1h, але теж читається через getEnv)
+  - SERVER_PORT (default 8080)
+- Опційні env:
+  - MIGRATIONS_DATABASE_URL (за замовчуванням = DATABASE_URL)
+
+7.3 internal/database/db.go
+- Призначення: ініціалізація глобального pool `database.DB`.
+- Ключові особливості:
+  - має `MaskDatabaseURL(raw string)` для безпечного логування URL без пароля.
+  - робить DNS lookup хоста БД для діагностики.
+  - має `isPoolerURL(raw string)`: визначає pooler за host, якщо містить `pooler.supabase.com`.
+  - `DefaultQueryExecMode = SimpleProtocol` і `StatementCacheCapacity = 0` застосовуються
+    лише для pooler URL (PgBouncer transaction mode), а не для direct DB URL.
+  - після підключення викликає loadUsersColumns().
+- loadUsersColumns():
+  - читає структуру таблиці users з information_schema.
+  - заповнює map usersColumns.
+  - це дозволяє репозиторію адаптуватись до схеми (backward compatibility).
+- Зв'язки:
+  - використовується репозиторіями та main.
+
+7.4 internal/database/migrations/0001_upgrade_users.up.sql
+- Не створює таблицю users заново; оновлює існуючу схему.
+- Додає (idempotent):
+  - extension `pgcrypto`, `citext`;
+  - enum `user_role` (через DO/EXECUTE якщо типу ще немає);
+  - конвертацію `users.email` і `users.username` в `citext`;
+  - нові колонки: role, email_verified, is_active, last_login_at, updated_at, display_name, avatar_url, bio;
+  - default для `created_at` = `now()`;
+  - unique індекси `users_email_uq`, `users_username_uq`;
+  - trigger function `set_updated_at()` і trigger `users_set_updated_at`.
+
+7.5 internal/database/migrations/0001_upgrade_users.down.sql
+- Best-effort rollback:
+  - прибирає trigger/function;
+  - прибирає `users_email_uq`, `users_username_uq`;
+  - видаляє додані колонки через `IF EXISTS`;
+  - конвертує `citext` назад у `text`;
+  - видаляє `user_role` якщо тип існує.
+
+7.5.1 internal/database/migrations/0002_friendships_constraints.*
+- Додає constraint-и для `friendships`:
+  - `status IN ('pending', 'accepted', 'rejected')`;
+  - `user_id <> friend_id`;
+  - unique `(user_id, friend_id)`.
+- Додає індекси:
+  - `(friend_id, status)`;
+  - `(user_id, status)`.
+
+7.5.2 internal/database/migrations/0003_friend_requests_lists.*
+- Додає `created_at` і `updated_at` у `friendships`, якщо їх бракує; backfill-ить NULL старих рядків і ставить default/not-null.
+- Додає trigger `friendships_set_updated_at` для автоматичного оновлення `updated_at`.
+- Гарантує індекси для friends page:
+  - `friendships(user_id, status)`;
+  - `friendships(friend_id, status)`;
+  - `friendships(user_id, friend_id)`.
+- Додає `pg_trgm` і GIN trigram indexes для case-insensitive substring search по:
+  - `users.username`;
+  - `users.email`;
+  - `users.display_name`, якщо колонка існує.
+- Down-міграція прибирає нові індекси/trigger/function і не видаляє дані.
+
+7.6 internal/models/user.go
+- DTO/доменна модель користувача.
+- Особливості:
+  - UUID як ID.
+  - PasswordHash прихований з JSON (`json:"-"`).
+  - опціональні поля через pointers (*string, *time.Time), щоб відрізняти null від порожнього.
+- Зв'язки:
+  - використовується auth/service, auth/handlers, repository.
+
+7.6.1 internal/models/friendship.go
+- DTO для user search і friend request списків.
+- Основні типи:
+  - `PublicUser`: публічні поля user для вкладених `from_user`/`to_user`.
+  - `UserSearchResult`: user + `relation_status`.
+  - `IncomingFriendRequest`, `OutgoingFriendRequest`: response rows для pending-заявок.
+- Константи relation status:
+  - `none`
+  - `pending_sent`
+  - `pending_received`
+  - `friends`
+- `password_hash` тут відсутній структурно, тому нові endpoints не можуть випадково його серіалізувати.
+
+7.7 internal/models/item.go
+- Модель елемента для рекомендацій.
+- Embedding: `pgvector.Vector`, прихований у JSON.
+- Зв'язки:
+  - використовується у repository/item_repo.go.
+
+7.8 internal/repository/user_repository.go
+- Шар SQL-доступу до users.
+- Функції:
+  - CreateUser(ctx, *User): INSERT + повернення ID.
+  - GetUserByEmail(ctx, email): dynamic SELECT залежно від реальних колонок.
+  - UpdateLastLogin(ctx, userID): ставить now() в last_login_at.
+  - applyUserDefaults(): fallback значень role/is_active/email_verified.
+- Дуже важлива ідея:
+  - `GetUserByEmail` не "жорстко" зав'язаний на всі колонки.
+  - Якщо schema старіша і немає частини колонок, код все одно працюватиме.
+
+7.8.1 internal/repository/friendships_repository.go
+- SQL-шар для friendship workflow.
+- Основні функції:
+  - `CreateFriendRequest(ctx, fromUserID, toUserID)`: insert pending request.
+  - `GetFriendshipStatus(ctx, fromUserID, toUserID)`: читає напрямлений статус.
+  - `UpdateFriendRequestStatus(ctx, fromUserID, toUserID, status)`: оновлює статус request.
+  - `EnsureAcceptedMirror(ctx, requesterID, receiverID)`: створює або оновлює mirror accepted row.
+  - `ListAcceptedFriendIDs(ctx, userID)`: основа для `GET /friends`.
+  - `SearchUsersWithFriendshipStatus(ctx, currentUserID, query, limit)`: пошук users + relation_status.
+  - `ListIncomingFriendRequests(ctx, userID)`: pending-заявки на current user.
+  - `ListOutgoingFriendRequests(ctx, userID)`: pending-заявки, відправлені current user.
+- SQL для search адаптується до наявності `display_name`, `avatar_url`, `is_active` через schema introspection.
+
+7.9 internal/repository/item_repo.go
+- Функція FindSimilar(userVector []float32).
+- SQL:
+  - `ORDER BY embedding <-> $1 LIMIT 5`.
+  - `<->` у pgvector означає відстань між векторами.
+- Поточний стан:
+  - це лише репозиторій; немає HTTP-ендпойнта чи сервісу, що його викликає.
+  - query вибирає `id, title, category, genres`, хоча Item має ще Description/Embedding.
+
+7.10 internal/security/password.go
+- HashPassword: bcrypt.GenerateFromPassword(DefaultCost).
+- CheckPassword: bcrypt.CompareHashAndPassword.
+- Це стандартна практика для зберігання паролів (ніколи не plaintext).
+
+7.11 internal/security/claims.go
+- Тип JWT claims:
+  - sub = UserID
+  - role = роль
+  - стандартні registered claims (exp, iat).
+
+7.12 internal/security/jwt.go
+- JWTService із secret та ttl.
+- Generate():
+  - створює HS256 токен із exp/iat.
+- Parse():
+  - перевіряє метод підпису (тільки HMAC),
+  - валідує токен,
+  - повертає Claims.
+- Важливо:
+  - Parse використовується в `internal/auth/middleware.go` для protected маршрутів.
+
+7.13 internal/auth/service.go
+- Бізнес-логіка auth.
+- Глобальна змінна jwtService ініціалізується через Init().
+- Register():
+  - валідація пароля;
+  - hash;
+  - create user;
+  - map DB unique violation в доменні помилки (ErrEmailTaken/ErrUsernameTaken);
+  - generate JWT.
+- Login():
+  - get user by email;
+  - перевірка is_active;
+  - check password;
+  - update last_login_at;
+  - generate JWT.
+- Роль:
+  - відділяє бізнес-правила від HTTP-рівня.
+
+7.14 internal/auth/handlers.go
+- HTTP-рівень для auth.
+- Типи request/response для bind + swagger.
+- RegisterHandler/LoginHandler:
+  - bind JSON;
+  - виклик service-функцій;
+  - мапінг помилок у HTTP status;
+  - формування JSON-відповіді.
+- Є структуровані логи з ip/user-agent.
+
+7.15 docs/docs.go
+- Згенерований код swagger (`DO NOT EDIT`).
+- Регіструє SwaggerInfo у swag через init().
+- Формується з коментарів у Go-коді.
+
+7.16 docs/swagger.yaml і docs/swagger.json
+- Машинно-читаний опис API.
+- Використовується swagger UI (`/swagger/index.html` через gin-swagger).
+- Генеруються CLI-утилітою `swag` із Go-коментарів (swaggo/swag).
+- Після додавання або зміни endpoint'ів потрібно регенерувати:
+  - `swag init -g cmd/api/main.go`
+  - це оновлює `docs/docs.go`, `docs/swagger.yaml`, `docs/swagger.json`.
+
+7.17 go.mod
+- Модуль: recommendation-system.
+- Go: 1.24.0, toolchain go1.24.11.
+- Прямі залежності: gin, jwt, uuid, pgx, godotenv, pgvector, swaggo, x/crypto.
+- Непрямі залежності: транзитивні пакети для gin/swagger/json/yaml.
+
+7.18 go.sum
+- Контрольні суми всіх модулів.
+- Потрібен для відтворюваності збірки.
+- Редагується автоматично Go tooling.
+
+7.19 .gitignore
+- Ігнорує `.env`, системні артефакти та локальні бінарники.
+
+7.20 env і .env
+- Файли конфігурації середовища.
+- Містять секрети (DATABASE_URL, MIGRATIONS_DATABASE_URL, JWT_SECRET тощо).
+- Критично: секрети не мають потрапляти у git-історію.
+
+7.21 .env.example
+- Безпечний шаблон для локального старту без реальних секретів.
+- Містить приклади:
+  - `DATABASE_URL` (pooler, runtime)
+  - `MIGRATIONS_DATABASE_URL` (для міграцій: direct рекомендовано, pooler допустимо)
+  - `JWT_SECRET`
+  - `SERVER_PORT`
+
+
+8) Як модулі зв'язані між собою
+-------------------------------
+Напрямки залежностей:
+- `cmd/api` -> `internal/config`, `internal/database`, `internal/auth`, `internal/friends`, `internal/security`, `docs`.
+- `internal/auth` -> `internal/repository`, `internal/security`, `internal/models`.
+- `internal/users` -> `internal/repository`, `internal/models`.
+- `internal/friends` -> `internal/repository`, `internal/auth`.
+- `internal/repository` -> `internal/database`, `internal/models`.
+- `internal/database` -> зовнішній pgx/pgxpool.
+- `internal/security` -> зовнішній jwt/bcrypt.
+
+Архітектурно:
+- Це близько до layered architecture:
+  - transport (handlers),
+  - service (business logic),
+  - repository (data access),
+  - infrastructure (db/config/security).
+
+
+9) Пояснення Go-концептів на прикладі цього коду
+------------------------------------------------
+- package:
+  - кожна папка internal/* це окремий package.
+- export rule:
+  - імена з великої літери (Load, InitDB, Register) публічні;
+  - з маленької (mustEnv, loadUsersColumns) приватні в межах package.
+- struct tags:
+  - `json:"email"` керує серіалізацією JSON;
+  - `binding:"required"` в Gin задає валідацію.
+- context.Context:
+  - передається від HTTP-запиту в repository для керування timeout/cancel.
+- pointers:
+  - *string/*time.Time для nullable полів.
+- errors:
+  - sentinel errors (ErrInvalidCredentials) дозволяють чітко мапити у HTTP статуси.
+- init():
+  - у docs/docs.go виконується при імпорті пакета.
+- blank import `_`:
+  - використовується, щоб виконати init() без прямого звернення до символів пакета.
+
+
+10) Поточні API ендпойнти
+-------------------------
+- GET /ping
+- POST /auth/register
+- POST /auth/login
+- GET /users/me (Bearer token required)
+- GET /users/search?q=<query>&limit=<n> (Bearer token required)
+- GET /friends (Bearer token required)
+- POST /friends/requests (Bearer token required)
+- GET /friends/requests/incoming (Bearer token required)
+- GET /friends/requests/outgoing (Bearer token required)
+- POST /friends/requests/respond (Bearer token required)
+- GET /swagger/*any
+
+Приклади high-level:
+- register: body {email, username, password} -> 201 + token + user
+- login: body {email, password} -> 200 + token + user
+- search users: GET /users/search?q=ann -> 200 + {users: [{..., relation_status}]}
+- list friends: GET /friends -> 200 + {friends: [...]}
+- send friend request: body {to_user_id} -> 201 + {status: "pending"}
+- incoming requests: GET /friends/requests/incoming -> 200 + {requests: [{from_user, status, created_at}]}
+- outgoing requests: GET /friends/requests/outgoing -> 200 + {requests: [{to_user, status, created_at}]}
+- respond to friend request: body {from_user_id, action} -> 200 + {status: "accepted"|"rejected"}
+
+Frontend Friends page workflow:
+1. Для search input викликати `GET /users/search?q=<text>&limit=20`.
+2. Якщо `relation_status = "none"`, показувати кнопку Add і викликати `POST /friends/requests`.
+3. Якщо `relation_status = "pending_sent"`, показувати pending state без повторного POST.
+4. Якщо `relation_status = "pending_received"`, можна показати Accept/Reject і викликати `POST /friends/requests/respond`.
+5. Для вкладки Incoming використовувати `GET /friends/requests/incoming`.
+6. Для вкладки Outgoing використовувати `GET /friends/requests/outgoing`.
+7. Для списку друзів використовувати існуючий `GET /friends`.
+
+Frontend Settings page workflow:
+1. Для поточного профілю використовувати тільки `GET /users/me`.
+2. Endpoint повертає backend-модель `models.User`, зокрема:
+   - `id`, `email`, `username`
+   - `display_name`, `avatar_url`, `bio`
+   - `role`, `email_verified`, `is_active`
+   - `created_at`, `updated_at`, `last_login_at`
+3. `password_hash` у JSON-відповідь не потрапляє (`json:"-"` у моделі).
+4. Окремого endpoint-а для update profile зараз немає:
+   - немає `PUT /users/me`
+   - немає `PATCH /users/me`
+   - немає окремого endpoint-а для зміни `display_name`, `avatar_url` або `bio`
+5. Тому Settings page має право:
+   - читати профіль через `GET /users/me`
+   - показувати поля profile/account
+   - зберігати frontend-only preferences локально
+6. Але Settings page не повинна:
+   - робити fake save запитів на backend
+   - відправляти `display_name`/`avatar_url`/`bio` на неіснуючі маршрути
+   - вигадувати change-password або session-management API
+
+
+11) Що вже зроблено для рекомендацій, а чого бракує
+----------------------------------------------------
+Вже є:
+- модель Item;
+- repository-пошук схожих item через pgvector `<->`.
+
+Бракує:
+- міграції таблиці items із vector-колонкою;
+- сервісу рекомендацій (business logic);
+- HTTP handler/route (наприклад GET /recommendations);
+- обчислення/отримання user embedding;
+
+
+12) Технічні ризики та покращення
+---------------------------------
+- Глобальні синглтони (`database.DB`, `jwtService`) ускладнюють тестування.
+- Відсутні unit/integration тести.
+- Migration runner додано (`cmd/migrate`), викликається вручну і не запускається автоматично разом з API.
+- Можлива невідповідність swagger-файлів реальному коду.
+- Наявність секретів у робочих env-файлах вимагає обережності з комітами.
+- Модель `friendships` напрямлена: `user_id` = requester/current owner, `friend_id` = addressee/friend. Для friendship після accept підтримується mirror-row `accepted`.
+- Для майбутніх remove/block/resync операцій треба оновлювати обидва напрямки accepted-зв'язку консистентно.
+
+
+13) Короткий підсумок для новачка в Go
+--------------------------------------
+Якщо вперше бачиш Go, дивись проєкт у такому порядку:
+1. `cmd/api/main.go` -> зрозумій запуск.
+2. `internal/config/config.go` -> звідки беруться параметри.
+3. `internal/auth/handlers.go` -> як HTTP запит потрапляє у код.
+4. `internal/auth/service.go` -> де бізнес-правила.
+5. `internal/repository/user_repository.go` -> як робиться SQL.
+6. `internal/security/*` -> пароль і JWT.
+7. `cmd/migrate/main.go` та `internal/database/migrations/*.sql` -> як оновлюється реальна схема БД.
+
+Після цього ти вже зможеш додавати нові фічі: новий handler -> service -> repository -> migration -> swagger.
+
+
+14) Swagger: синхронізація після змін API
+-----------------------------------------
+Коли додаються/змінюються endpoint'и, swagger-файли потрібно регенерувати CLI-командою:
+- `swag init -g cmd/api/main.go`
+
+Це оновлює:
+- `docs/docs.go`
+- `docs/swagger.json`
+- `docs/swagger.yaml`
+
+Мінімальна перевірка після регенерації:
+1. У swagger є нові маршрути (зокрема `GET /users/search`, `GET /friends/requests/incoming`, `GET /friends/requests/outgoing`, `POST /friends/requests`, `POST /friends/requests/respond`, `GET /users/me`).
+2. На protected-роутах є `BearerAuth`.
+3. Модель `models.User` не містить `PasswordHash`.
+4. Немає дублікатів моделей користувача у definitions.

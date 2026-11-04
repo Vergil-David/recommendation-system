@@ -1,42 +1,947 @@
 basePath: /
-host: localhost:8080
+definitions:
+  auth.AuthResponse:
+    properties:
+      token:
+        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        type: string
+      user:
+        $ref: '#/definitions/models.User'
+    type: object
+  auth.ErrorResponse:
+    properties:
+      error:
+        example: invalid request
+        type: string
+    type: object
+  auth.LoginRequest:
+    properties:
+      email:
+        example: user@example.com
+        format: email
+        type: string
+      password:
+        example: secret123
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  auth.RegisterRequest:
+    properties:
+      email:
+        example: user@example.com
+        format: email
+        type: string
+      password:
+        example: secret123
+        minLength: 6
+        type: string
+      username:
+        example: johndoe
+        type: string
+    required:
+    - email
+    - password
+    - username
+    type: object
+  friends.ErrorResponse:
+    properties:
+      error:
+        example: invalid request
+        type: string
+    type: object
+  friends.FriendRequestStatusResponse:
+    properties:
+      status:
+        example: accepted
+        type: string
+    type: object
+  friends.FriendsListResponse:
+    properties:
+      friends:
+        items:
+          $ref: '#/definitions/models.User'
+        type: array
+    type: object
+  friends.IncomingFriendRequestsResponse:
+    properties:
+      requests:
+        items:
+          $ref: '#/definitions/models.IncomingFriendRequest'
+        type: array
+    type: object
+  friends.OutgoingFriendRequestsResponse:
+    properties:
+      requests:
+        items:
+          $ref: '#/definitions/models.OutgoingFriendRequest'
+        type: array
+    type: object
+  friends.RespondFriendRequestRequest:
+    properties:
+      action:
+        example: accept
+        type: string
+      from_user_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+    required:
+    - action
+    - from_user_id
+    type: object
+  friends.SendFriendRequestRequest:
+    properties:
+      to_user_id:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+    required:
+    - to_user_id
+    type: object
+  friends.SendFriendRequestResponse:
+    properties:
+      status:
+        example: pending
+        type: string
+    type: object
+  library.ErrorResponse:
+    properties:
+      error:
+        example: unauthorized
+        type: string
+    type: object
+  library.GetLibraryMoviesResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/library.MovieItemResponse'
+        type: array
+    type: object
+  library.MovieItemResponse:
+    properties:
+      description:
+        type: string
+      id:
+        type: integer
+      image_url:
+        type: string
+      release_year:
+        type: integer
+      title:
+        type: string
+    type: object
+  main.PingResponse:
+    properties:
+      message:
+        example: pong
+        type: string
+    type: object
+  models.IncomingFriendRequest:
+    properties:
+      created_at:
+        format: date-time
+        type: string
+      from_user:
+        $ref: '#/definitions/models.PublicUser'
+      status:
+        example: pending
+        type: string
+    type: object
+  models.OutgoingFriendRequest:
+    properties:
+      created_at:
+        format: date-time
+        type: string
+      status:
+        example: pending
+        type: string
+      to_user:
+        $ref: '#/definitions/models.PublicUser'
+    type: object
+  models.PublicUser:
+    properties:
+      avatar_url:
+        example: https://cdn.example.com/avatars/johndoe.png
+        type: string
+      display_name:
+        example: John Doe
+        type: string
+      email:
+        example: user@example.com
+        format: email
+        type: string
+      id:
+        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        type: string
+      username:
+        example: johndoe
+        type: string
+    type: object
+  models.User:
+    properties:
+      avatar_url:
+        example: https://cdn.example.com/avatars/johndoe.png
+        type: string
+      bio:
+        example: Book lover and sci-fi fan.
+        type: string
+      created_at:
+        format: date-time
+        type: string
+      display_name:
+        example: John Doe
+        type: string
+      email:
+        example: user@example.com
+        format: email
+        type: string
+      email_verified:
+        example: true
+        type: boolean
+      id:
+        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        type: string
+      is_active:
+        example: true
+        type: boolean
+      last_login_at:
+        format: date-time
+        type: string
+      role:
+        example: user
+        type: string
+      updated_at:
+        format: date-time
+        type: string
+      username:
+        example: johndoe
+        type: string
+    type: object
+  models.UserSearchResult:
+    properties:
+      avatar_url:
+        example: https://cdn.example.com/avatars/johndoe.png
+        type: string
+      display_name:
+        example: John Doe
+        type: string
+      email:
+        example: user@example.com
+        format: email
+        type: string
+      id:
+        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        type: string
+      relation_status:
+        example: none
+        type: string
+      username:
+        example: johndoe
+        type: string
+    type: object
+  movies.ErrorResponse:
+    properties:
+      error:
+        example: invalid query parameters
+        type: string
+    type: object
+  movies.GetMoviesResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/movies.MovieItemResponse'
+        type: array
+      limit:
+        type: integer
+      page:
+        type: integer
+      total:
+        type: integer
+    type: object
+  movies.MovieItemResponse:
+    properties:
+      description:
+        type: string
+      id:
+        type: integer
+      image_url:
+        type: string
+      release_year:
+        type: integer
+      title:
+        type: string
+    type: object
+  recommendations.AddInteractionRequest:
+    properties:
+      item_id:
+        example: 306
+        type: integer
+      type:
+        example: liked
+        type: string
+    required:
+    - item_id
+    - type
+    type: object
+  recommendations.AddInteractionResponse:
+    properties:
+      status:
+        example: recorded
+        type: string
+    type: object
+  recommendations.ErrorResponse:
+    properties:
+      error:
+        example: invalid request
+        type: string
+    type: object
+  recommendations.FriendRecommendationItemResponse:
+    properties:
+      id:
+        type: integer
+      reason:
+        example: Liked by 3 of your friends
+        type: string
+      score:
+        example: 3
+        type: integer
+      title:
+        type: string
+    type: object
+  recommendations.GetFriendRecommendationsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/recommendations.FriendRecommendationItemResponse'
+        type: array
+    type: object
+  recommendations.GetInteractionStatesResponse:
+    properties:
+      items:
+        additionalProperties:
+          $ref: '#/definitions/recommendations.InteractionStateResponse'
+        type: object
+    type: object
+  recommendations.GetRecommendationsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/recommendations.RecommendationItemResponse'
+        type: array
+    type: object
+  recommendations.InteractionStateResponse:
+    properties:
+      disliked:
+        type: boolean
+      favorite:
+        type: boolean
+      liked:
+        type: boolean
+      skipped:
+        type: boolean
+      viewed:
+        type: boolean
+    type: object
+  recommendations.RecommendationItemResponse:
+    properties:
+      description:
+        type: string
+      id:
+        type: integer
+      image_url:
+        type: string
+      reason:
+        example: Because you liked similar Ukrainian movies
+        type: string
+      release_year:
+        type: integer
+      score:
+        example: 0.91
+        type: number
+      title:
+        type: string
+    type: object
+  users.ErrorResponse:
+    properties:
+      error:
+        example: unauthorized
+        type: string
+    type: object
+  users.MeResponse:
+    properties:
+      user:
+        $ref: '#/definitions/models.User'
+    type: object
+  users.SearchUsersResponse:
+    properties:
+      users:
+        items:
+          $ref: '#/definitions/models.UserSearchResult'
+        type: array
+    type: object
 info:
   contact: {}
-  description: API сервер для курсової роботи з рекомендаційною системою.
+  description: API для реєстрації, автентифікації та базових сервісів системи рекомендацій.
   title: Book Recommendation System API
   version: "1.0"
 paths:
-  /ping:
-    get:
+  /auth/login:
+    post:
       consumes:
       - application/json
-      description: Повертає pong, якщо сервер живий
+      description: Перевіряє email/пароль та повертає JWT токен і профіль користувача.
+      parameters:
+      - description: Дані для входу
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.LoginRequest'
       produces:
       - application/json
       responses:
         "200":
-          description: OK
+          description: Успішний вхід
           schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Перевірка здоров'я сервера
+            $ref: '#/definitions/auth.AuthResponse'
+        "400":
+          description: Невірні дані запиту
+          schema:
+            $ref: '#/definitions/auth.ErrorResponse'
+        "401":
+          description: Невірні облікові дані
+          schema:
+            $ref: '#/definitions/auth.ErrorResponse'
+        "403":
+          description: Користувач не активний
+          schema:
+            $ref: '#/definitions/auth.ErrorResponse'
+        "500":
+          description: Серверна помилка
+          schema:
+            $ref: '#/definitions/auth.ErrorResponse'
+      summary: Вхід користувача
       tags:
-      - system
-  /recommend/vector:
-    get:
+      - auth
+  /auth/register:
+    post:
       consumes:
       - application/json
-      description: Повертає список книг на основі схожості описів
+      description: |-
+        Створює новий акаунт користувача з email, username та паролем.
+        Повертає JWT токен та профіль користувача.
+      parameters:
+      - description: Дані для реєстрації
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Користувача створено
+          schema:
+            $ref: '#/definitions/auth.AuthResponse'
+        "400":
+          description: Невірні дані запиту або бізнес-правила
+          schema:
+            $ref: '#/definitions/auth.ErrorResponse'
+        "409":
+          description: Email або username вже зайняті
+          schema:
+            $ref: '#/definitions/auth.ErrorResponse'
+        "500":
+          description: Серверна помилка
+          schema:
+            $ref: '#/definitions/auth.ErrorResponse'
+      summary: Реєстрація нового користувача
+      tags:
+      - auth
+  /friends:
+    get:
+      description: Повертає список користувачів зі статусом accepted для поточного
+        користувача.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Список друзів
+          schema:
+            $ref: '#/definitions/friends.FriendsListResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Список друзів користувача
+      tags:
+      - friends
+  /friends/requests:
+    post:
+      consumes:
+      - application/json
+      description: Створює новий запит у друзі зі статусом pending.
+      parameters:
+      - description: Цільовий користувач
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/friends.SendFriendRequestRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Запит надіслано
+          schema:
+            $ref: '#/definitions/friends.SendFriendRequestResponse'
+        "400":
+          description: Невірні дані або спроба додати себе
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+        "404":
+          description: Користувача не знайдено
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+        "409":
+          description: Запит уже існує
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Надіслати запит у друзі
+      tags:
+      - friends
+  /friends/requests/incoming:
+    get:
+      description: Повертає pending-запити, які поточний користувач може прийняти
+        або відхилити.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Список вхідних запитів
+          schema:
+            $ref: '#/definitions/friends.IncomingFriendRequestsResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Вхідні запити у друзі
+      tags:
+      - friends
+  /friends/requests/outgoing:
+    get:
+      description: Повертає pending-запити, які поточний користувач уже відправив.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Список вихідних запитів
+          schema:
+            $ref: '#/definitions/friends.OutgoingFriendRequestsResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Вихідні запити у друзі
+      tags:
+      - friends
+  /friends/requests/respond:
+    post:
+      consumes:
+      - application/json
+      description: Дозволяє отримувачу запиту прийняти або відхилити pending-запит.
+      parameters:
+      - description: Користувач-відправник і дія
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/friends.RespondFriendRequestRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Новий статус запиту
+          schema:
+            $ref: '#/definitions/friends.FriendRequestStatusResponse'
+        "400":
+          description: Невірні дані або дія
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+        "404":
+          description: Запит не знайдено
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+        "409":
+          description: Запит не в pending статусі
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/friends.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Відповісти на запит у друзі
+      tags:
+      - friends
+  /interactions:
+    post:
+      consumes:
+      - application/json
+      description: Зберігає viewed, liked, disliked, favorite або skipped для поточного
+        користувача. Legacy-значення view, like і skip також приймаються.
+      parameters:
+      - description: Взаємодія користувача
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/recommendations.AddInteractionRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
-      summary: Векторні рекомендації
+            $ref: '#/definitions/recommendations.AddInteractionResponse'
+        "400":
+          description: Невірний запит або interaction type
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+        "404":
+          description: Елемент не знайдено
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Записати взаємодію з елементом
       tags:
       - recommendations
+  /interactions/items:
+    get:
+      description: Повертає поточні стани viewed, liked, disliked, favorite і skipped
+        для переданих item_id.
+      parameters:
+      - description: CSV список item_id, наприклад 1,2,3
+        in: query
+        name: ids
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/recommendations.GetInteractionStatesResponse'
+        "400":
+          description: Невірні query-параметри
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Отримати стани взаємодій для списку елементів
+      tags:
+      - recommendations
+  /library/favorites:
+    get:
+      description: Повертає фільми поточного користувача зі станом favorite.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/library.GetLibraryMoviesResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/library.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/library.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Улюблені фільми користувача
+      tags:
+      - library
+  /library/liked:
+    get:
+      description: Повертає фільми поточного користувача зі станом liked.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/library.GetLibraryMoviesResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/library.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/library.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Лайкнуті фільми користувача
+      tags:
+      - library
+  /library/viewed:
+    get:
+      description: Повертає фільми поточного користувача зі станом viewed.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/library.GetLibraryMoviesResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/library.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/library.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Переглянуті фільми користувача
+      tags:
+      - library
+  /movies:
+    get:
+      description: Повертає список фільмів з пагінацією.
+      parameters:
+      - description: Номер сторінки (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Ліміт на сторінку (default 20, max 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/movies.GetMoviesResponse'
+        "400":
+          description: Некоректні query-параметри
+          schema:
+            $ref: '#/definitions/movies.ErrorResponse'
+        "500":
+          description: Помилка бази даних
+          schema:
+            $ref: '#/definitions/movies.ErrorResponse'
+      summary: Список фільмів
+      tags:
+      - movies
+  /ping:
+    get:
+      description: Повертає "pong" якщо сервіс працює.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.PingResponse'
+      summary: Перевірка доступності сервісу
+      tags:
+      - health
+  /recommendations:
+    get:
+      description: Повертає рекомендації на основі liked/favorite сигналів і pgvector
+        similarity з fallback на популярні або нові фільми.
+      parameters:
+      - description: Ліміт рекомендацій (default 20, max 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/recommendations.GetRecommendationsResponse'
+        "400":
+          description: Невірні query-параметри
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Отримати персональні рекомендації
+      tags:
+      - recommendations
+  /recommendations/friends:
+    get:
+      description: Повертає фільми, які accepted friends поточного користувача лайкнули
+        або зберегли у favorite, відсортовані за силою social signal.
+      parameters:
+      - description: Ліміт рекомендацій (default 20, max 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/recommendations.GetFriendRecommendationsResponse'
+        "400":
+          description: Невірні query-параметри
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/recommendations.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Отримати friend-based рекомендації
+      tags:
+      - recommendations
+  /users/me:
+    get:
+      description: Повертає профіль поточного авторизованого користувача.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Профіль користувача
+          schema:
+            $ref: '#/definitions/users.MeResponse'
+        "401":
+          description: Токен невалідний або користувача не знайдено
+          schema:
+            $ref: '#/definitions/users.ErrorResponse'
+        "403":
+          description: Користувач неактивний
+          schema:
+            $ref: '#/definitions/users.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/users.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Поточний профіль користувача
+      tags:
+      - users
+  /users/search:
+    get:
+      description: Шукає користувачів по username, display_name або email і повертає
+        relation_status відносно поточного користувача.
+      parameters:
+      - description: Пошуковий запит
+        in: query
+        name: q
+        required: true
+        type: string
+      - default: 20
+        description: Максимальна кількість результатів
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Список знайдених користувачів
+          schema:
+            $ref: '#/definitions/users.SearchUsersResponse'
+        "400":
+          description: Невірний або порожній запит
+          schema:
+            $ref: '#/definitions/users.ErrorResponse'
+        "401":
+          description: Неавторизовано
+          schema:
+            $ref: '#/definitions/users.ErrorResponse'
+        "500":
+          description: Внутрішня помилка сервера
+          schema:
+            $ref: '#/definitions/users.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Пошук користувачів
+      tags:
+      - users
+schemes:
+- http
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
 swagger: "2.0"
